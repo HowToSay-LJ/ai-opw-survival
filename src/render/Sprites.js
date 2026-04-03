@@ -104,6 +104,82 @@ export function drawCrystal(ctx, x, y) {
   ctx.beginPath(); ctx.moveTo(x + 3, y - 8); ctx.lineTo(x + 7, y + 1); ctx.lineTo(x + 2, y + 1); ctx.closePath(); ctx.fill(); ctx.stroke();
 }
 
+// ========== 山峰/岩壁 ==========
+
+// 大山峰（三角形山体，带雪顶）
+export function drawMountainPeak(ctx, x, y, size, id, hasSnow) {
+  const sw = wobble(id, 0.5, 0.3);
+  ctx.strokeStyle = INK; ctx.lineWidth = 1.8;
+  ctx.fillStyle = 'rgba(170,155,135,0.15)';
+
+  // 山体轮廓
+  ctx.beginPath();
+  ctx.moveTo(x - size * 1.2 + jitS(id, 2), y + size * 0.6);
+  ctx.lineTo(x - size * 0.3 + jitS(id + 1, 2), y - size * 0.8 + sw);
+  ctx.lineTo(x + jitS(id + 2, 1.5), y - size + sw);
+  ctx.lineTo(x + size * 0.4 + jitS(id + 3, 2), y - size * 0.7 + sw);
+  ctx.lineTo(x + size * 1.3 + jitS(id + 4, 2), y + size * 0.6);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // 山脊线
+  ctx.strokeStyle = INK_L; ctx.lineWidth = 0.8;
+  sketchLine(ctx, x - size * 0.3, y - size * 0.8 + sw, x, y - size + sw, id + 10);
+  sketchLine(ctx, x, y - size + sw, x + size * 0.4, y - size * 0.7 + sw, id + 20);
+
+  // 阴影面
+  ctx.fillStyle = 'rgba(140,125,110,0.1)';
+  ctx.beginPath();
+  ctx.moveTo(x + jitS(id + 5, 1), y - size + sw);
+  ctx.lineTo(x + size * 0.4, y - size * 0.7 + sw);
+  ctx.lineTo(x + size * 1.3, y + size * 0.6);
+  ctx.lineTo(x + size * 0.2, y + size * 0.6);
+  ctx.closePath();
+  ctx.fill();
+
+  // 雪顶
+  if (hasSnow) {
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.strokeStyle = INK; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.15, y - size * 0.65 + sw);
+    ctx.lineTo(x, y - size + sw);
+    ctx.lineTo(x + size * 0.2, y - size * 0.6 + sw);
+    ctx.quadraticCurveTo(x + size * 0.05, y - size * 0.55 + sw, x - size * 0.15, y - size * 0.65 + sw);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  }
+
+  // 岩石纹理
+  ctx.strokeStyle = INK_L; ctx.lineWidth = 0.6;
+  sketchLine(ctx, x - size * 0.5, y, x - size * 0.2, y - size * 0.3 + sw, id + 30);
+  sketchLine(ctx, x + size * 0.3, y + size * 0.1, x + size * 0.5, y - size * 0.2 + sw, id + 40);
+}
+
+// 小山丘/岩壁（阻挡型，不可通行的感觉）
+export function drawCliffWall(ctx, x, y, width, id) {
+  ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
+  ctx.fillStyle = 'rgba(160,145,125,0.12)';
+
+  // 崖壁主体
+  ctx.beginPath();
+  ctx.moveTo(x - width / 2 + jitS(id, 2), y + 8);
+  ctx.lineTo(x - width / 2 + 5 + jitS(id + 1, 2), y - 12 + jitS(id + 2, 3));
+  ctx.lineTo(x - width / 6 + jitS(id + 3, 2), y - 18 + jitS(id + 4, 2));
+  ctx.lineTo(x + width / 6 + jitS(id + 5, 2), y - 15 + jitS(id + 6, 3));
+  ctx.lineTo(x + width / 2 - 5 + jitS(id + 7, 2), y - 10 + jitS(id + 8, 2));
+  ctx.lineTo(x + width / 2 + jitS(id + 9, 2), y + 8);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // 崖壁横纹
+  ctx.strokeStyle = INK_L; ctx.lineWidth = 0.6;
+  sketchLine(ctx, x - width / 3, y - 2, x + width / 3, y - 4, id + 50);
+  sketchLine(ctx, x - width / 4, y + 3, x + width / 4, y + 2, id + 60);
+}
+
+// 水面岸线装饰已移除（不好看）
+
 // ========== 建筑 ==========
 
 export function drawShelter(ctx, x, y) {

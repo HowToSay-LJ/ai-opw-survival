@@ -1,8 +1,9 @@
 // 游戏入口
-export const VERSION = 'v0.1.2';
+export const VERSION = 'v0.1.4';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
+         drawMountainPeak, drawCliffWall,
          drawRabbit, drawWolf, drawDeer, drawFox, drawFish } from './render/Sprites.js';
 import { Camera } from './game/Camera.js';
 import { MapGenerator } from './world/MapGenerator.js';
@@ -102,6 +103,62 @@ const crystals = [
   // 山地
   [2500,400],[2600,500],[450,1800],
 ];
+// 山峰（大型，有视觉冲击力）
+const mountainPeaks = [
+  // 东北山地
+  { x:2350, y:350, size:40, id:10000, snow:true },
+  { x:2600, y:300, size:50, id:10100, snow:true },
+  { x:2800, y:450, size:35, id:10200, snow:false },
+  { x:2500, y:550, size:30, id:10300, snow:false },
+  { x:2700, y:650, size:38, id:10400, snow:false },
+  // 西南山地
+  { x:350, y:1700, size:35, id:10500, snow:false },
+  { x:550, y:1800, size:42, id:10600, snow:false },
+  { x:450, y:1950, size:30, id:10700, snow:false },
+  { x:680, y:1900, size:28, id:10800, snow:false },
+  // 南方山地
+  { x:1400, y:2100, size:38, id:10900, snow:false },
+  { x:1600, y:2150, size:45, id:11000, snow:true },
+  { x:1800, y:2200, size:35, id:11100, snow:false },
+  // 雪地山峰（更高大）
+  { x:2900, y:200, size:55, id:11200, snow:true },
+  { x:3050, y:300, size:45, id:11300, snow:true },
+  { x:200, y:150, size:40, id:11400, snow:true },
+];
+
+// 崖壁（不可通行的屏障感）
+const cliffWalls = [
+  // 东北山地边缘
+  { x:2150, y:450, w:60, id:12000 },
+  { x:2250, y:600, w:50, id:12100 },
+  { x:2650, y:750, w:55, id:12200 },
+  // 西南山地边缘
+  { x:300, y:1650, w:50, id:12300 },
+  { x:600, y:2000, w:55, id:12400 },
+  // 南方山地
+  { x:1300, y:2050, w:60, id:12500 },
+  { x:1700, y:2100, w:50, id:12600 },
+];
+
+// 岸线（水域边缘装饰）
+const shoreLines = [
+  // 湖泊1（北方）岸线
+  { x:1430, y:520, len:80, angle:-0.2, id:13000 },
+  { x:1480, y:560, len:70, angle:0.3, id:13100 },
+  // 小池塘（西方）
+  { x:510, y:1130, len:50, angle:0.1, id:13200 },
+  { x:540, y:1165, len:45, angle:-0.15, id:13300 },
+  // 河流沿岸（多段）
+  { x:700, y:470, len:60, angle:0.5, id:13400 },
+  { x:900, y:780, len:65, angle:0.4, id:13500 },
+  { x:1100, y:1030, len:60, angle:0.3, id:13600 },
+  { x:1300, y:1180, len:55, angle:0.35, id:13700 },
+  { x:1500, y:1330, len:60, angle:0.3, id:13800 },
+  { x:1700, y:1530, len:55, angle:0.4, id:13900 },
+  { x:1900, y:1780, len:60, angle:0.35, id:14000 },
+  { x:2100, y:2030, len:55, angle:0.3, id:14100 },
+];
+
 const campfirePos = { x: 1640, y: 1220 };
 const shelterPos = { x: 1560, y: 1210 };
 
@@ -289,6 +346,10 @@ function frame() {
   deadTrees.forEach((d, i) => { if (camera.isVisible(d[0], d[1])) draws.push({ y: d[1], fn: () => drawDeadTree(ctx, d[0] - cx, d[1] - cy, i * 250) }); });
   crystals.forEach((c, i) => { if (camera.isVisible(c[0], c[1])) draws.push({ y: c[1], fn: () => drawCrystal(ctx, c[0] - cx, c[1] - cy) }); });
 
+  // 山峰
+  mountainPeaks.forEach(p => { if (camera.isVisible(p.x, p.y, 80)) draws.push({ y: p.y + p.size * 0.6, fn: () => drawMountainPeak(ctx, p.x - cx, p.y - cy, p.size, p.id, p.snow) }); });
+  // 崖壁
+  cliffWalls.forEach(c => { if (camera.isVisible(c.x, c.y, 60)) draws.push({ y: c.y + 8, fn: () => drawCliffWall(ctx, c.x - cx, c.y - cy, c.w, c.id) }); });
   if (camera.isVisible(shelterPos.x, shelterPos.y)) draws.push({ y: shelterPos.y, fn: () => drawShelter(ctx, shelterPos.x - cx, shelterPos.y - cy) });
   if (camera.isVisible(campfirePos.x, campfirePos.y)) draws.push({ y: campfirePos.y, fn: () => drawCampfire(ctx, campfirePos.x - cx, campfirePos.y - cy) });
 
