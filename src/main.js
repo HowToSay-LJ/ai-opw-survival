@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.1.4';
+export const VERSION = 'v0.2.1';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -7,6 +7,9 @@ import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRo
          drawRabbit, drawWolf, drawDeer, drawFox, drawFish } from './render/Sprites.js';
 import { Camera } from './game/Camera.js';
 import { MapGenerator } from './world/MapGenerator.js';
+import { GameState, PHASE } from './game/GameState.js';
+import { NightUI } from './render/NightUI.js';
+import { AIBehavior } from './entities/AIBehavior.js';
 import { wobble } from './render/SketchTools.js';
 
 // ===== 初始化 =====
@@ -23,7 +26,21 @@ const MMW = mmCanvas.width, MMH = mmCanvas.height;
 const map = new MapGenerator(42).generate();
 const camera = new Camera(VW, VH, map.width, map.height);
 
-// 小地图：缩小版的背景地图，只生成一次
+// 游戏状态
+const gs = new GameState();
+gs.ai.x = map.spawnX;
+gs.ai.y = map.spawnY;
+gs.ai.shelterPos = { x: map.spawnX - 40, y: map.spawnY + 10 };
+gs.ai.shelterType = 'basic';
+gs.ai.shelterDaysLeft = 3;
+gs.ai.campfirePos = { x: map.spawnX + 40, y: map.spawnY + 20 };
+gs.ai.campfireFuel = 2;
+gs.startDay();
+
+// 夜晚UI
+const nightUI = new NightUI(canvas);
+
+// 小地图
 let mmBgCache = null;
 function buildMinimapBg() {
   const oc = document.createElement('canvas');
@@ -49,8 +66,8 @@ function drawMinimap() {
   mmCtx.strokeRect(sx, sy, sw, sh);
 
   // AI 位置（红点）
-  const ax = (ai.x / map.width) * MMW;
-  const ay = (ai.y / map.height) * MMH;
+  const ax = (gs.ai.x / map.width) * MMW;
+  const ay = (gs.ai.y / map.height) * MMH;
   mmCtx.fillStyle = '#e04040';
   mmCtx.beginPath(); mmCtx.arc(ax, ay, 3, 0, Math.PI * 2); mmCtx.fill();
 }
@@ -86,9 +103,19 @@ const rocks = [
 ];
 const berries = [
   // 中心安全区
-  [1450,1050],[1600,1100],[1750,1150],[1500,1300],[1650,1250],
+  { x:1450, y:1050, depleted:false },
+  { x:1600, y:1100, depleted:false },
+  { x:1750, y:1150, depleted:false },
+  { x:1500, y:1300, depleted:false },
+  { x:1650, y:1250, depleted:false },
   // 西方森林
-  [600,1000],[700,1150],
+  { x:600, y:1000, depleted:false },
+  { x:700, y:1150, depleted:false },
+  // 北方森林
+  { x:1350, y:550, depleted:false },
+  { x:1600, y:480, depleted:false },
+  // 东南森林
+  { x:2200, y:1600, depleted:false },
 ];
 const mushrooms = [[580,950],[1300,550],[2250,1600]];
 const flowers = [
@@ -201,84 +228,9 @@ const foxes = [
   { x:600, y:1050, vx:-0.15, phase:1, minX:480, maxX:720 },
 ];
 
-// ===== AI 角色（8方向大环绕路径） =====
-const ai = {
-  x: 1600, y: 1200, expr: 'curious', bubble: '这里好像很安全...',
-  wait: 0, speed: 1.5,
-  path: [
-    // 出生点
-    { x:1600, y:1200, w:100, e:'curious', b:'这里好像很安全...' },
-    // → 北方（森林）
-    { x:1550, y:1050, w:50, e:'normal', b:'' },
-    { x:1500, y:850, w:60, e:'thinking', b:'往北走走看...' },
-    { x:1500, y:600, w:70, e:'curious', b:'好多树！这是森林' },
-    { x:1500, y:530, w:60, e:'happy', b:'发现一个湖！' },
-    // → 东北（山地）
-    { x:1800, y:450, w:50, e:'normal', b:'继续往东北走' },
-    { x:2200, y:350, w:60, e:'thinking', b:'地上好多石头...' },
-    { x:2450, y:400, w:40, e:'scared', b:'有狼！快跑！' },
-    { x:2100, y:500, w:40, e:'scared', b:'' },
-    { x:1800, y:600, w:60, e:'determined', b:'还好跑掉了' },
-    // → 回中心
-    { x:1600, y:900, w:40, e:'normal', b:'' },
-    { x:1600, y:1200, w:80, e:'happy', b:'回到家了' },
-    // → 东南（花田+森林）
-    { x:1800, y:1300, w:50, e:'normal', b:'' },
-    { x:2000, y:1400, w:70, e:'curious', b:'好多花！好漂亮' },
-    { x:2200, y:1550, w:60, e:'normal', b:'再往深处看看' },
-    { x:2350, y:1700, w:60, e:'thinking', b:'这里树很密...' },
-    { x:2200, y:1600, w:40, e:'normal', b:'回去吧' },
-    // → 回中心
-    { x:1800, y:1350, w:30, e:'normal', b:'' },
-    { x:1600, y:1200, w:60, e:'happy', b:'到家了！' },
-    // → 西方（森林）
-    { x:1300, y:1100, w:40, e:'normal', b:'' },
-    { x:900, y:1000, w:50, e:'thinking', b:'往西边探索' },
-    { x:650, y:1000, w:60, e:'curious', b:'又一片森林' },
-    { x:550, y:1100, w:50, e:'happy', b:'发现浆果了！' },
-    // → 西南（山地）
-    { x:500, y:1400, w:50, e:'normal', b:'继续往南' },
-    { x:450, y:1700, w:60, e:'thinking', b:'这里好荒凉...' },
-    { x:500, y:1850, w:40, e:'scared', b:'又有狼！' },
-    { x:650, y:1600, w:40, e:'scared', b:'快跑！' },
-    { x:900, y:1300, w:50, e:'determined', b:'这边太危险了' },
-    // → 回中心
-    { x:1300, y:1200, w:30, e:'normal', b:'' },
-    { x:1600, y:1200, w:80, e:'happy', b:'安全！' },
-    // → 南方（沙地+山地）
-    { x:1500, y:1400, w:40, e:'normal', b:'' },
-    { x:1400, y:1700, w:60, e:'curious', b:'这里有沙地' },
-    { x:1450, y:1950, w:50, e:'thinking', b:'越来越远了...' },
-    { x:1500, y:2100, w:40, e:'scared', b:'好像有狼群！' },
-    { x:1500, y:1800, w:40, e:'scared', b:'' },
-    { x:1550, y:1500, w:50, e:'determined', b:'赶紧回去' },
-    // → 回中心
-    { x:1600, y:1200, w:80, e:'happy', b:'终于到家了' },
-    // → 西北（沼泽）
-    { x:1300, y:1000, w:40, e:'normal', b:'' },
-    { x:900, y:750, w:50, e:'thinking', b:'往西北方向' },
-    { x:600, y:550, w:60, e:'curious', b:'这里雾蒙蒙的...' },
-    { x:400, y:500, w:50, e:'thinking', b:'是沼泽！好多枯树' },
-    { x:450, y:650, w:40, e:'scared', b:'脚陷进去了！' },
-    { x:700, y:750, w:40, e:'determined', b:'赶紧走' },
-    { x:1000, y:900, w:40, e:'normal', b:'' },
-    // → 回中心
-    { x:1600, y:1200, w:80, e:'happy', b:'还是家里安全' },
-  ],
-  si: 0,
-};
-
-function updateAI() {
-  const s = ai.path[ai.si];
-  const dx = s.x - ai.x, dy = s.y - ai.y, d = Math.hypot(dx, dy);
-  if (d > 2) {
-    ai.x += dx / d * ai.speed;
-    ai.y += dy / d * ai.speed;
-  } else {
-    ai.expr = s.e; ai.bubble = s.b; ai.wait++;
-    if (ai.wait >= s.w) { ai.wait = 0; ai.si = (ai.si + 1) % ai.path.length; }
-  }
-}
+// ===== AI 行为引擎 =====
+const worldObjects = { berries, wolves, shelterPos, campfirePos };
+const aiBehavior = new AIBehavior(gs, worldObjects);
 
 // ===== 动物更新 =====
 function updateAnimals() {
@@ -291,10 +243,15 @@ function updateAnimals() {
 
 // ===== UI =====
 function drawUI() {
+  const hp = gs.hpPercent, hunger = gs.hungerPercent;
+  const timeLeft = Math.ceil(gs.dayTimeLeft);
+
+  // 天数+倒计时
   ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.roundRect(VW - 130, 15, 115, 35, 8); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#3a3a3a'; ctx.font = '15px Georgia,serif';
-  ctx.fillText('☀ 第 1 天', VW - 118, 38);
+  ctx.beginPath(); ctx.roundRect(VW / 2 - 70, 12, 140, 35, 8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#3a3a3a'; ctx.font = '14px Georgia,serif'; ctx.textAlign = 'center';
+  ctx.fillText(`☀ 第 ${gs.day} 天  ${timeLeft}s`, VW / 2, 35);
+  ctx.textAlign = 'left';
 
   // 状态面板
   const px = 15, py = VH - 125;
@@ -302,30 +259,135 @@ function drawUI() {
   ctx.beginPath(); ctx.roundRect(px, py, 220, 110, 8); ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#3a3a3a'; ctx.font = 'bold 13px Georgia,serif'; ctx.fillText('AI 状态', px + 12, py + 20);
   ctx.font = '12px Georgia,serif';
+
+  // 生命条
   ctx.fillText('生命', px + 12, py + 42);
   ctx.strokeStyle = '#999'; ctx.lineWidth = 1; ctx.strokeRect(px + 52, py + 32, 100, 12);
-  ctx.fillStyle = 'rgba(220,80,80,0.4)'; ctx.fillRect(px + 53, py + 33, 78, 10);
-  ctx.fillStyle = '#3a3a3a'; ctx.fillText('80%', px + 160, py + 42);
+  ctx.fillStyle = hp > 30 ? 'rgba(220,80,80,0.4)' : 'rgba(220,40,40,0.6)';
+  ctx.fillRect(px + 53, py + 33, hp, 10);
+  ctx.fillStyle = '#3a3a3a'; ctx.fillText(`${hp}%`, px + 160, py + 42);
+
+  // 饥饿条
   ctx.fillText('饥饿', px + 12, py + 60);
   ctx.strokeStyle = '#999'; ctx.strokeRect(px + 52, py + 50, 100, 12);
-  ctx.fillStyle = 'rgba(100,170,80,0.4)'; ctx.fillRect(px + 53, py + 51, 55, 10);
-  ctx.fillStyle = '#3a3a3a'; ctx.fillText('55%', px + 160, py + 60);
-  ctx.fillText('背包: 浆果×3  木头×2', px + 12, py + 80);
+  ctx.fillStyle = hunger > 30 ? 'rgba(100,170,80,0.4)' : 'rgba(200,160,40,0.5)';
+  ctx.fillRect(px + 53, py + 51, hunger, 10);
+  ctx.fillStyle = '#3a3a3a'; ctx.fillText(`${hunger}%`, px + 160, py + 60);
+
+  // 背包简要
+  const itemCount = gs.ai.inventory.length;
+  ctx.fillText(`背包: ${itemCount}/${gs.ai.inventorySize} 格`, px + 12, py + 80);
+
+  // 内心想法
   ctx.fillStyle = '#999'; ctx.font = 'italic 11px Georgia,serif';
-  ctx.fillText('💭 ' + (ai.bubble || '...'), px + 12, py + 98);
+  ctx.fillText('💭 ' + (gs.ai.bubble || '...'), px + 12, py + 98);
+
+  // 中毒标记
+  if (gs.ai.poisoned) {
+    ctx.fillStyle = '#8a40a0'; ctx.font = 'bold 11px Georgia,serif';
+    ctx.fillText('🐍 中毒中', px + 140, py + 20);
+  }
 
   // 版本号
   ctx.fillStyle = '#ccc'; ctx.font = '10px Georgia,serif';
   ctx.fillText(VERSION, 10, VH - 8);
 }
 
+// ===== 夜晚流程控制 =====
+function enterNightFlow() {
+  // 模拟AI汇报（Phase 4会换成Claude API生成）
+  const events = gs.todayEvents;
+  let report = `今天是第${gs.day}天。`;
+  if (events.length === 0) {
+    report += '我在附近转了转，没什么特别的事。';
+  } else {
+    report += events.map(e => e.event).join('，然后') + '。';
+  }
+  report += `\n现在我的状态：生命${gs.hpPercent}%，饥饿${gs.hungerPercent}%。`;
+
+  gs.enterReport(report);
+
+  nightUI.activate(
+    // onSubmit：玩家提交留言
+    (msg) => {
+      gs.submitMessage(msg);
+      // 模拟策略更新（Phase 4会换成Claude API）
+      const mockDiff = [
+        { type: 'add', text: '根据留言调整策略...' },
+        { type: 'keep', text: '保持基础生存优先' },
+      ];
+      gs.finishStrategyUpdate(gs.strategyBook + '\n' + msg, mockDiff);
+    },
+    // onNext：进入下一阶段
+    () => {
+      const phase = gs.phase;
+      if (phase === PHASE.NIGHT_SETTLE) {
+        gs.enterReport(gs.nightReport || '今天没什么特别的...');
+        gs.phase = PHASE.NIGHT_REPORT;
+      } else if (phase === PHASE.NIGHT_REPORT) {
+        gs.enterMessage();
+      } else if (phase === PHASE.STRATEGY_UPDATE) {
+        nightUI.deactivate();
+        gs.dawn();
+      } else if (phase === PHASE.DEATH) {
+        // 重新开始
+        location.reload();
+      }
+    }
+  );
+}
+
 // ===== 主循环 =====
-function frame() {
-  time += 0.016;
+let lastTime = 0;
+function frame(timestamp) {
+  const dt = lastTime ? Math.min((timestamp - lastTime) / 1000, 0.05) : 0.016;
+  lastTime = timestamp;
+  time += dt;
   setTime(time);
-  updateAI();
+
+  // ===== 游戏阶段分支 =====
+  const phase = gs.phase;
+
+  // 夜晚阶段 → 渲染夜晚UI
+  if (phase === PHASE.NIGHT_SETTLE) {
+    nightUI.drawSettle(gs.day, gs.nightSettleText);
+    requestAnimationFrame(frame); return;
+  }
+  if (phase === PHASE.NIGHT_REPORT) {
+    nightUI.drawReport(gs.day, gs.nightReport);
+    requestAnimationFrame(frame); return;
+  }
+  if (phase === PHASE.NIGHT_MESSAGE) {
+    nightUI.drawMessageInput(gs.day);
+    requestAnimationFrame(frame); return;
+  }
+  if (phase === PHASE.STRATEGY_UPDATE) {
+    nightUI.drawStrategyUpdate(gs.day, gs.strategyDiff);
+    requestAnimationFrame(frame); return;
+  }
+  if (phase === PHASE.DEATH) {
+    nightUI.drawDeath(gs.day, gs.history);
+    requestAnimationFrame(frame); return;
+  }
+
+  // ===== 白天阶段 =====
+  // 游戏状态tick
+  gs.tickDay(dt);
+
+  // 天黑 → 进入夜晚流程
+  if (gs.phase === PHASE.NIGHT_SETTLE) {
+    enterNightFlow();
+    requestAnimationFrame(frame); return;
+  }
+  if (gs.phase === PHASE.DEATH) {
+    nightUI.drawDeath(gs.day, gs.history);
+    if (!nightUI.active) nightUI.activate(null, () => location.reload());
+    requestAnimationFrame(frame); return;
+  }
+
+  aiBehavior.update(dt);
   updateAnimals();
-  camera.follow(ai.x, ai.y);
+  camera.follow(gs.ai.x, gs.ai.y);
 
   // 清屏 + 背景
   ctx.clearRect(0, 0, VW, VH);
@@ -340,7 +402,21 @@ function frame() {
   pines.forEach((t, i) => { if (camera.isVisible(t[0], t[1])) draws.push({ y: t[1], fn: () => drawPine(ctx, t[0] - cx, t[1] - cy, t[2], i * 200 + 1000) }); });
   grasses.forEach((g, i) => { if (camera.isVisible(g[0], g[1])) draws.push({ y: g[1], fn: () => drawGrass(ctx, g[0] - cx, g[1] - cy, i * 100) }); });
   rocks.forEach((r, i) => { if (camera.isVisible(r[0], r[1])) draws.push({ y: r[1], fn: () => drawRock(ctx, r[0] - cx, r[1] - cy, r[2], i * 300) }); });
-  berries.forEach((b, i) => { if (camera.isVisible(b[0], b[1])) draws.push({ y: b[1], fn: () => drawBerryBush(ctx, b[0] - cx, b[1] - cy, i * 400) }); });
+  berries.forEach((b, i) => {
+    if (camera.isVisible(b.x, b.y)) {
+      if (!b.depleted) {
+        draws.push({ y: b.y, fn: () => drawBerryBush(ctx, b.x - cx, b.y - cy, i * 400) });
+      } else {
+        // 采完的浆果丛：只画灰色灌木轮廓
+        draws.push({ y: b.y, fn: () => {
+          ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+          ctx.fillStyle = 'rgba(180,180,170,0.08)';
+          ctx.beginPath(); ctx.ellipse(b.x - cx, b.y - cy, 12, 8, 0, 0, Math.PI * 2);
+          ctx.fill(); ctx.stroke();
+        }});
+      }
+    }
+  });
   mushrooms.forEach((m, i) => { if (camera.isVisible(m[0], m[1])) draws.push({ y: m[1], fn: () => drawMushroom(ctx, m[0] - cx, m[1] - cy, i * 500) }); });
   flowers.forEach((f, i) => { if (camera.isVisible(f[0], f[1])) draws.push({ y: f[1], fn: () => drawFlower(ctx, f[0] - cx, f[1] - cy, i * 150, i % 5) }); });
   deadTrees.forEach((d, i) => { if (camera.isVisible(d[0], d[1])) draws.push({ y: d[1], fn: () => drawDeadTree(ctx, d[0] - cx, d[1] - cy, i * 250) }); });
@@ -361,9 +437,9 @@ function frame() {
   foxes.forEach(f => { if (camera.isVisible(f.x, f.y)) draws.push({ y: f.y, fn: () => { const tw = wobble(f.phase * 80, 4, 1.5); drawFox(ctx, f.x - cx, f.y - cy, f.vx < 0 ? -1 : 1, tw); } }); });
 
   // AI 角色
-  draws.push({ y: ai.y + 20, fn: () => {
-    drawAICharacter(ctx, ai.x - cx, ai.y - cy, ai.expr);
-    drawBubble(ctx, ai.x - cx, ai.y - cy, ai.bubble);
+  draws.push({ y: gs.ai.y + 20, fn: () => {
+    drawAICharacter(ctx, gs.ai.x - cx, gs.ai.y - cy, gs.ai.expression);
+    drawBubble(ctx, gs.ai.x - cx, gs.ai.y - cy, gs.ai.bubble);
   }});
 
   // 深度排序渲染
@@ -375,4 +451,4 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
-frame();
+requestAnimationFrame(frame);
