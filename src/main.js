@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.2.1';
+export const VERSION = 'v0.3.1';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -30,6 +30,7 @@ const camera = new Camera(VW, VH, map.width, map.height);
 const gs = new GameState();
 gs.ai.x = map.spawnX;
 gs.ai.y = map.spawnY;
+gs.ai.personality = 'reckless'; // 测试用，后续改为玩家选择
 gs.ai.shelterPos = { x: map.spawnX - 40, y: map.spawnY + 10 };
 gs.ai.shelterType = 'basic';
 gs.ai.shelterDaysLeft = 3;
@@ -101,21 +102,50 @@ const rocks = [
   // 南方山地
   [1350,2100,12],[1500,2080,10],[1650,2150,11],[1400,2200,9],
 ];
-const berries = [
-  // 中心安全区
-  { x:1450, y:1050, depleted:false },
-  { x:1600, y:1100, depleted:false },
-  { x:1750, y:1150, depleted:false },
-  { x:1500, y:1300, depleted:false },
-  { x:1650, y:1250, depleted:false },
-  // 西方森林
-  { x:600, y:1000, depleted:false },
-  { x:700, y:1150, depleted:false },
-  // 北方森林
-  { x:1350, y:550, depleted:false },
-  { x:1600, y:480, depleted:false },
-  // 东南森林
-  { x:2200, y:1600, depleted:false },
+// ===== 可采集资源（统一格式：{ x, y, resourceType, depleted }） =====
+const resources = [
+  // 浆果（安全区+近区）
+  { x:1450, y:1050, resourceType:'berry', depleted:false },
+  { x:1600, y:1100, resourceType:'berry', depleted:false },
+  { x:1750, y:1150, resourceType:'berry', depleted:false },
+  { x:1500, y:1300, resourceType:'berry', depleted:false },
+  { x:1650, y:1250, resourceType:'berry', depleted:false },
+  { x:600, y:1000, resourceType:'berry', depleted:false },
+  { x:700, y:1150, resourceType:'berry', depleted:false },
+  { x:1350, y:550, resourceType:'berry', depleted:false },
+  { x:1600, y:480, resourceType:'berry', depleted:false },
+  { x:2200, y:1600, resourceType:'berry', depleted:false },
+  // 树木（近区森林，无限）
+  { x:1320, y:500, resourceType:'wood', depleted:false },
+  { x:1500, y:650, resourceType:'wood', depleted:false },
+  { x:1700, y:500, resourceType:'wood', depleted:false },
+  { x:550, y:980, resourceType:'wood', depleted:false },
+  { x:680, y:1080, resourceType:'wood', depleted:false },
+  { x:2250, y:1580, resourceType:'wood', depleted:false },
+  // 石头（近区溪边 + 中区山地大量）
+  { x:1400, y:950, resourceType:'stone', depleted:false },
+  { x:1700, y:1000, resourceType:'stone', depleted:false },
+  { x:1300, y:1100, resourceType:'stone', depleted:false },
+  { x:1200, y:700, resourceType:'stone', depleted:false },
+  { x:1400, y:750, resourceType:'stone', depleted:false },
+  { x:2400, y:380, resourceType:'stone', depleted:false },
+  { x:2550, y:500, resourceType:'stone', depleted:false },
+  { x:2650, y:600, resourceType:'stone', depleted:false },
+  { x:400, y:1750, resourceType:'stone', depleted:false },
+  { x:550, y:1850, resourceType:'stone', depleted:false },
+  { x:1450, y:2100, resourceType:'stone', depleted:false },
+  // 草（到处都有，无限）
+  { x:1480, y:1150, resourceType:'grass', depleted:false },
+  { x:1620, y:1050, resourceType:'grass', depleted:false },
+  { x:1550, y:1300, resourceType:'grass', depleted:false },
+  { x:1350, y:1180, resourceType:'grass', depleted:false },
+  { x:1700, y:1200, resourceType:'grass', depleted:false },
+  // 止血草（花田边缘）
+  { x:1900, y:1380, resourceType:'herb', depleted:false },
+  { x:2050, y:1420, resourceType:'herb', depleted:false },
+  // 粘土（沙地）
+  { x:1300, y:1730, resourceType:'clay', depleted:false },
+  { x:1500, y:1750, resourceType:'clay', depleted:false },
 ];
 const mushrooms = [[580,950],[1300,550],[2250,1600]];
 const flowers = [
@@ -191,20 +221,16 @@ const shelterPos = { x: 1560, y: 1210 };
 
 // ===== 动物（覆盖各区域） =====
 const rabbits = [
-  // 中心草地
-  { x:1500, y:1100, vx:0.3, phase:0, minX:1400, maxX:1600 },
-  { x:1700, y:1250, vx:-0.2, phase:2, minX:1600, maxX:1800 },
-  // 花田
-  { x:2050, y:1450, vx:0.25, phase:1, minX:1950, maxX:2150 },
+  { x:1500, y:1100, vx:0.3, phase:0, minX:1400, maxX:1600, hp:10, species:'兔子', meatDrop:1, dead:false },
+  { x:1700, y:1250, vx:-0.2, phase:2, minX:1600, maxX:1800, hp:10, species:'兔子', meatDrop:1, dead:false },
+  { x:2050, y:1450, vx:0.25, phase:1, minX:1950, maxX:2150, hp:10, species:'兔子', meatDrop:1, dead:false },
+  { x:1400, y:600, vx:-0.2, phase:0.5, minX:1300, maxX:1500, hp:10, species:'兔子', meatDrop:1, dead:false },
 ];
 const wolves = [
-  // 东北山地
-  { x:2500, y:450, vx:-0.15, phase:0, minX:2350, maxX:2650 },
-  { x:2600, y:600, vx:0.1, phase:1, minX:2450, maxX:2750 },
-  // 西南山地
-  { x:500, y:1800, vx:0.12, phase:2, minX:350, maxX:650 },
-  // 南方山地
-  { x:1500, y:2150, vx:-0.1, phase:0.5, minX:1350, maxX:1650 },
+  { x:2500, y:450, vx:-0.15, phase:0, minX:2350, maxX:2650, hp:50, attackDamage:12, species:'狼', dead:false },
+  { x:2600, y:600, vx:0.1, phase:1, minX:2450, maxX:2750, hp:50, attackDamage:12, species:'狼', dead:false },
+  { x:500, y:1800, vx:0.12, phase:2, minX:350, maxX:650, hp:50, attackDamage:12, species:'狼', dead:false },
+  { x:1500, y:2150, vx:-0.1, phase:0.5, minX:1350, maxX:1650, hp:50, attackDamage:12, species:'狼', dead:false },
 ];
 const deers = [
   // 中心/北方
@@ -228,14 +254,37 @@ const foxes = [
   { x:600, y:1050, vx:-0.15, phase:1, minX:480, maxX:720 },
 ];
 
-// ===== AI 行为引擎 =====
-const worldObjects = { berries, wolves, shelterPos, campfirePos };
-const aiBehavior = new AIBehavior(gs, worldObjects);
+// ===== 系统初始化 =====
+import { CraftingSystem } from './systems/Crafting.js';
+import { CombatSystem } from './entities/Combat.js';
+
+const craftingSystem = new CraftingSystem(gs);
+const combatSystem = new CombatSystem(gs);
+const worldObjects = { resources, rabbits, wolves, deers, fishes, foxes, shelterPos, campfirePos };
+const aiBehavior = new AIBehavior(gs, worldObjects, craftingSystem, combatSystem);
 
 // ===== 动物更新 =====
 function updateAnimals() {
-  for (const r of rabbits) { r.x += r.vx; r.phase += 0.05; if (r.x > r.maxX || r.x < r.minX) r.vx *= -1; }
-  for (const w of wolves) { w.x += w.vx; w.phase += 0.02; if (w.x > w.maxX || w.x < w.minX) w.vx *= -1; }
+  const aiX = gs.ai.x, aiY = gs.ai.y;
+  for (const r of rabbits) {
+    if (r.dead) continue;
+    // 兔子：AI靠近时逃跑
+    const dist = Math.hypot(r.x - aiX, r.y - aiY);
+    if (dist < 120) {
+      const dx = r.x - aiX, dy = r.y - aiY;
+      const d = Math.hypot(dx, dy) || 1;
+      r.x += (dx / d) * 1.5;
+      r.y += (dy / d) * 1.5;
+    } else {
+      r.x += r.vx; if (r.x > r.maxX || r.x < r.minX) r.vx *= -1;
+    }
+    r.phase += 0.05;
+  }
+  // 狼的移动在 AIBehavior._checkWolfChase 中处理
+  for (const w of wolves) {
+    if (w.dead) continue;
+    if (!w.chasing) { w.x += w.vx; w.phase += 0.02; if (w.x > w.maxX || w.x < w.minX) w.vx *= -1; }
+  }
   for (const d of deers) { d.timer++; if (d.timer % 120 === 0) d.eating = !d.eating; d.headY += (d.eating ? 8 : 0 - d.headY) * 0.05; }
   for (const f of fishes) { f.x += f.vx; f.phase += 0.03; if (f.x > f.maxX || f.x < f.minX) f.vx *= -1; }
   for (const f of foxes) { f.x += f.vx; f.phase += 0.03; if (f.x > f.maxX || f.x < f.minX) f.vx *= -1; }
@@ -254,9 +303,9 @@ function drawUI() {
   ctx.textAlign = 'left';
 
   // 状态面板
-  const px = 15, py = VH - 125;
+  const px = 15, py = VH - 140;
   ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.roundRect(px, py, 220, 110, 8); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.roundRect(px, py, 220, 125, 8); ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#3a3a3a'; ctx.font = 'bold 13px Georgia,serif'; ctx.fillText('AI 状态', px + 12, py + 20);
   ctx.font = '12px Georgia,serif';
 
@@ -274,13 +323,22 @@ function drawUI() {
   ctx.fillRect(px + 53, py + 51, hunger, 10);
   ctx.fillStyle = '#3a3a3a'; ctx.fillText(`${hunger}%`, px + 160, py + 60);
 
-  // 背包简要
-  const itemCount = gs.ai.inventory.length;
-  ctx.fillText(`背包: ${itemCount}/${gs.ai.inventorySize} 格`, px + 12, py + 80);
+  // 武器
+  const wpn = gs.ai.equipment.weapon;
+  if (wpn) {
+    ctx.fillStyle = '#666'; ctx.font = '11px Georgia,serif';
+    ctx.fillText(`⚔ ${wpn.name}(${wpn.durability})`, px + 12, py + 80);
+  } else {
+    ctx.fillStyle = '#bbb'; ctx.font = '11px Georgia,serif';
+    ctx.fillText('⚔ 无武器', px + 12, py + 80);
+  }
 
-  // 内心想法
+  // 内心想法 + 当前行动
   ctx.fillStyle = '#999'; ctx.font = 'italic 11px Georgia,serif';
   ctx.fillText('💭 ' + (gs.ai.bubble || '...'), px + 12, py + 98);
+  // debug: 当前行动
+  ctx.fillStyle = '#bbb'; ctx.font = '9px Georgia,serif';
+  ctx.fillText('行动: ' + aiBehavior.action, px + 12, py + 110);
 
   // 中毒标记
   if (gs.ai.poisoned) {
@@ -291,6 +349,84 @@ function drawUI() {
   // 版本号
   ctx.fillStyle = '#ccc'; ctx.font = '10px Georgia,serif';
   ctx.fillText(VERSION, 10, VH - 8);
+
+  // ===== 背包面板（右下角） =====
+  const bx = VW - 195, by = VH - 170;
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.roundRect(bx, by, 180, 155, 8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#3a3a3a'; ctx.font = 'bold 12px Georgia,serif';
+  ctx.fillText('背包', bx + 10, by + 18);
+  ctx.fillStyle = '#999'; ctx.font = '10px Georgia,serif';
+  ctx.fillText(`${gs.ai.inventory.length}/${gs.ai.inventorySize}`, bx + 145, by + 18);
+
+  // 背包格子
+  const inv = gs.ai.inventory;
+  const cellSize = 38, cols = 4, padX = 10, padY = 28;
+  for (let i = 0; i < gs.ai.inventorySize; i++) {
+    const cx = bx + padX + (i % cols) * (cellSize + 4);
+    const cy = by + padY + Math.floor(i / cols) * (cellSize + 4);
+    // 格子背景
+    ctx.fillStyle = i < inv.length ? 'rgba(245,241,232,0.8)' : 'rgba(230,226,218,0.4)';
+    ctx.strokeStyle = i < inv.length ? '#bbb' : '#ddd';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(cx, cy, cellSize, cellSize, 4); ctx.fill(); ctx.stroke();
+
+    if (i < inv.length) {
+      const item = inv[i];
+      // 物品名（缩短）
+      ctx.fillStyle = '#3a3a3a'; ctx.font = '10px Georgia,serif'; ctx.textAlign = 'center';
+      const shortName = item.name.length > 3 ? item.name.slice(0, 3) : item.name;
+      ctx.fillText(shortName, cx + cellSize / 2, cy + cellSize / 2 + 2);
+      // 数量
+      if (item.count > 1) {
+        ctx.fillStyle = '#666'; ctx.font = 'bold 9px Georgia,serif'; ctx.textAlign = 'right';
+        ctx.fillText('×' + item.count, cx + cellSize - 2, cy + cellSize - 3);
+      }
+      // 耐久条（工具）
+      if (item.durability != null) {
+        const durPct = item.durability / 15; // 假设max15
+        ctx.fillStyle = durPct > 0.3 ? 'rgba(100,170,80,0.5)' : 'rgba(220,80,80,0.5)';
+        ctx.fillRect(cx + 2, cy + cellSize - 5, (cellSize - 4) * durPct, 3);
+      }
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // ===== 进度条（AI头上方） =====
+  const progressInfo = gs.ai.craftingInfo || gs.ai.collectingInfo || gs.ai.eatingInfo;
+  if (progressInfo) {
+    const sx = gs.ai.x - camera.x, sy = gs.ai.y - camera.y - 35;
+    const barW = 44, barH = 5;
+    // 背景
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(sx - barW / 2, sy, barW, barH);
+    // 进度
+    const isCraft = !!gs.ai.craftingInfo;
+    const isEat = !!gs.ai.eatingInfo;
+    ctx.fillStyle = isCraft ? 'rgba(200,170,60,0.6)' : isEat ? 'rgba(220,140,80,0.6)' : 'rgba(100,170,80,0.6)';
+    ctx.fillRect(sx - barW / 2, sy, barW * progressInfo.progress / 100, barH);
+    ctx.strokeStyle = '#aaa'; ctx.lineWidth = 0.5;
+    ctx.strokeRect(sx - barW / 2, sy, barW, barH);
+    ctx.fillStyle = '#555'; ctx.font = '9px Georgia,serif'; ctx.textAlign = 'center';
+    const label = isCraft ? '制作中...' : isEat ? '吃' + progressInfo.name : '采集' + progressInfo.name;
+    ctx.fillText(label, sx, sy - 4);
+    ctx.textAlign = 'left';
+
+    // 简单动画：采集时资源旁边画几个小粒子
+    if (!isCraft && aiBehavior.collectTarget) {
+      const t = aiBehavior.collectTarget;
+      const tx = t.x - camera.x, ty = t.y - camera.y;
+      const sparkCount = 3;
+      for (let i = 0; i < sparkCount; i++) {
+        const angle = time * 3 + i * (Math.PI * 2 / sparkCount);
+        const r = 10 + Math.sin(time * 5 + i) * 4;
+        const px = tx + Math.cos(angle) * r;
+        const py = ty + Math.sin(angle) * r - 5;
+        ctx.fillStyle = 'rgba(180,160,100,0.4)';
+        ctx.beginPath(); ctx.arc(px, py, 1.5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
 }
 
 // ===== 夜晚流程控制 =====
@@ -402,19 +538,32 @@ function frame(timestamp) {
   pines.forEach((t, i) => { if (camera.isVisible(t[0], t[1])) draws.push({ y: t[1], fn: () => drawPine(ctx, t[0] - cx, t[1] - cy, t[2], i * 200 + 1000) }); });
   grasses.forEach((g, i) => { if (camera.isVisible(g[0], g[1])) draws.push({ y: g[1], fn: () => drawGrass(ctx, g[0] - cx, g[1] - cy, i * 100) }); });
   rocks.forEach((r, i) => { if (camera.isVisible(r[0], r[1])) draws.push({ y: r[1], fn: () => drawRock(ctx, r[0] - cx, r[1] - cy, r[2], i * 300) }); });
-  berries.forEach((b, i) => {
-    if (camera.isVisible(b.x, b.y)) {
-      if (!b.depleted) {
-        draws.push({ y: b.y, fn: () => drawBerryBush(ctx, b.x - cx, b.y - cy, i * 400) });
-      } else {
-        // 采完的浆果丛：只画灰色灌木轮廓
-        draws.push({ y: b.y, fn: () => {
-          ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-          ctx.fillStyle = 'rgba(180,180,170,0.08)';
-          ctx.beginPath(); ctx.ellipse(b.x - cx, b.y - cy, 12, 8, 0, 0, Math.PI * 2);
-          ctx.fill(); ctx.stroke();
-        }});
-      }
+  // 可采集资源
+  resources.forEach((r, i) => {
+    if (!camera.isVisible(r.x, r.y)) return;
+    if (r.depleted) {
+      // 已采空：淡色标记
+      draws.push({ y: r.y, fn: () => {
+        ctx.strokeStyle = '#ccc'; ctx.lineWidth = 0.8;
+        ctx.fillStyle = 'rgba(200,200,190,0.06)';
+        ctx.beginPath(); ctx.ellipse(r.x - cx, r.y - cy, 8, 5, 0, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+      }});
+      return;
+    }
+    switch (r.resourceType) {
+      case 'berry':
+        draws.push({ y: r.y, fn: () => drawBerryBush(ctx, r.x - cx, r.y - cy, i * 400) }); break;
+      case 'wood':
+        draws.push({ y: r.y, fn: () => drawTree(ctx, r.x - cx, r.y - cy, 11, i * 200 + 5000) }); break;
+      case 'stone':
+        draws.push({ y: r.y, fn: () => drawRock(ctx, r.x - cx, r.y - cy, 9, i * 300 + 6000) }); break;
+      case 'grass':
+        draws.push({ y: r.y, fn: () => drawGrass(ctx, r.x - cx, r.y - cy, i * 100 + 7000) }); break;
+      case 'herb':
+        draws.push({ y: r.y, fn: () => drawFlower(ctx, r.x - cx, r.y - cy, i * 150 + 8000, 1) }); break;
+      case 'clay':
+        draws.push({ y: r.y, fn: () => drawRock(ctx, r.x - cx, r.y - cy, 7, i * 300 + 9000) }); break;
     }
   });
   mushrooms.forEach((m, i) => { if (camera.isVisible(m[0], m[1])) draws.push({ y: m[1], fn: () => drawMushroom(ctx, m[0] - cx, m[1] - cy, i * 500) }); });
@@ -430,8 +579,8 @@ function frame(timestamp) {
   if (camera.isVisible(campfirePos.x, campfirePos.y)) draws.push({ y: campfirePos.y, fn: () => drawCampfire(ctx, campfirePos.x - cx, campfirePos.y - cy) });
 
   // 动物
-  rabbits.forEach(r => { if (camera.isVisible(r.x, r.y)) draws.push({ y: r.y, fn: () => { const hop = Math.abs(Math.sin(r.phase * 3)) * 5; drawRabbit(ctx, r.x - cx, r.y - cy, r.vx < 0 ? -1 : 1, hop); } }); });
-  wolves.forEach(w => { if (camera.isVisible(w.x, w.y)) draws.push({ y: w.y, fn: () => { const tw = wobble(w.phase * 100, 5, 2); drawWolf(ctx, w.x - cx, w.y - cy, w.vx < 0 ? -1 : 1, tw); } }); });
+  rabbits.forEach(r => { if (!r.dead && camera.isVisible(r.x, r.y)) draws.push({ y: r.y, fn: () => { const hop = Math.abs(Math.sin(r.phase * 3)) * 5; drawRabbit(ctx, r.x - cx, r.y - cy, r.vx < 0 ? -1 : 1, hop); } }); });
+  wolves.forEach(w => { if (!w.dead && camera.isVisible(w.x, w.y)) draws.push({ y: w.y, fn: () => { const tw = wobble(w.phase * 100, 5, 2); drawWolf(ctx, w.x - cx, w.y - cy, w.vx < 0 ? -1 : 1, tw); } }); });
   deers.forEach(d => { if (camera.isVisible(d.x, d.y)) draws.push({ y: d.y, fn: () => drawDeer(ctx, d.x - cx, d.y - cy, d.headY) }); });
   fishes.forEach(f => { if (camera.isVisible(f.x, f.y)) draws.push({ y: f.y, fn: () => { const fy = f.y + Math.sin(f.phase * 2) * 3; drawFish(ctx, f.x - cx, fy - cy, f.vx < 0 ? -1 : 1); } }); });
   foxes.forEach(f => { if (camera.isVisible(f.x, f.y)) draws.push({ y: f.y, fn: () => { const tw = wobble(f.phase * 80, 4, 1.5); drawFox(ctx, f.x - cx, f.y - cy, f.vx < 0 ? -1 : 1, tw); } }); });

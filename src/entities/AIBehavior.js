@@ -1,5 +1,6 @@
 // AI 基础自主行为（规则引擎，Phase 4 会被 LLM 决策替代）
-// 根据性格 + 当前状态选择行动
+
+import { RESOURCE_TYPES } from '../data/recipes.js';
 
 const ACTION = {
   IDLE: 'idle',
@@ -9,36 +10,56 @@ const ACTION = {
   EAT: 'eat',
   FLEE: 'flee',
   RETURN_HOME: 'return_home',
+  CRAFT: 'craft',
+  FIGHT: 'fight',
+  HUNT: 'hunt',
 };
 
 export class AIBehavior {
-  constructor(gameState, worldObjects) {
+  constructor(gameState, worldObjects, craftingSystem, combatSystem) {
     this.gs = gameState;
-    this.world = worldObjects; // { berries, shelterPos, campfirePos, wolves, ... }
+    this.world = worldObjects;
+    this.crafting = craftingSystem;
+    this.combat = combatSystem;
 
     this.action = ACTION.IDLE;
     this.targetX = 0;
     this.targetY = 0;
     this.actionTimer = 0;
-    this.collectTarget = null;  // 正在采集的资源引用
+    this.collectTarget = null;
     this.collectProgress = 0;
+    this.huntTarget = null;
 
-    this.thinkCooldown = 0; // 决策冷却
+    this.thinkCooldown = 0;
     this.lastThought = '';
+    this.thoughtTimer = 0; // 想法显示持续时间
   }
 
   update(dt) {
     const ai = this.gs.ai;
     this.thinkCooldown -= dt;
+    this.thoughtTimer -= dt;
 
-    // 每隔一段时间重新决策
-    if (this.thinkCooldown <= 0 || this.action === ACTION.IDLE) {
-      this._decide();
-      this.thinkCooldown = 2 + Math.random() * 2; // 2-4秒决策一次
+    // 想法消失
+    if (this.thoughtTimer <= 0 && ai.bubble) {
+      ai.bubble = '';
     }
 
-    // 执行当前行动
+    // 被狼追击检测
+    this._checkWolfChase(dt);
+
+    // 决策：IDLE时立即决策，其他行动中不打断（除非冷却到了且不在采集/战斗中）
+    if (this.action === ACTION.IDLE) {
+      this._decide();
+      this.thinkCooldown = 3;
+    } else if (this.thinkCooldown <= 0 && this.action === ACTION.WANDER) {
+      // 只在闲逛时重新决策，采集/移动/战斗中不打断
+      this._decide();
+      this.thinkCooldown = 3;
+    }
+
     this._execute(dt);
+    this.combat.update(dt);
   }
 
   _decide() {
@@ -59,81 +80,163 @@ export class AIBehavior {
     }
 
     // 优先级2：附近有狼，逃跑
-    const nearestWolf = this._findNearestThreat();
-    if (nearestWolf && nearestWolf.dist < 150) {
-      // 性格影响：莽撞型不怕狼（远一点才跑）
+    const nearestWolf = this._findNearest(this.world.wolves, 180);
+    if (nearestWolf) {
       const fleeThreshold = personality === 'reckless' ? 80 : 150;
       if (nearestWolf.dist < fleeThreshold) {
-        const dx = ai.x - nearestWolf.x;
-        const dy = ai.y - nearestWolf.y;
-        const d = Math.hypot(dx, dy) || 1;
-        this.targetX = ai.x + (dx / d) * 200;
-        this.targetY = ai.y + (dy / d) * 200;
-        this.action = ACTION.FLEE;
+        this._fleeFrom(nearestWolf.obj.x, nearestWolf.obj.y);
         ai.expression = 'scared';
         this._think('危险！快跑！');
         return;
       }
     }
 
-    // 优先级3：很饿，找吃的或吃背包里的
+    // 优先级3：很饿，找吃的
     if (ai.hunger < 40) {
-      // 先看背包有没有食物
+      // 背包有食物？
       const food = ai.inventory.find(i => i.type === 'food');
       if (food) {
         this.action = ACTION.EAT;
         this._think('肚子好饿，吃点东西...');
         return;
       }
-      // 没有就找最近的浆果丛
-      const nearestBerry = this._findNearestBerry();
+      // 找最近的浆果
+      const nearestBerry = this._findNearestResource('berry');
       if (nearestBerry) {
-        this.action = ACTION.GOTO;
-        this.targetX = nearestBerry.x;
-        this.targetY = nearestBerry.y;
-        this.collectTarget = nearestBerry;
+        this._goCollect(nearestBerry.obj);
         this._think('得找点吃的...');
         return;
       }
     }
 
-    // 优先级4：根据性格自由行动
-    if (personality === 'cautious') {
-      // 谨慎型：在安全区附近晃，偶尔采浆果
-      this._wanderNear(ai.shelterPos || { x: this.gs.ai.x, y: this.gs.ai.y }, 200);
-      this._think(Math.random() > 0.5 ? '在附近看看...' : '');
-    } else if (personality === 'reckless') {
-      // 莽撞型：到处跑
-      this._wanderFar();
-      this._think(Math.random() > 0.5 ? '冲啊！去看看！' : '');
-    } else {
-      // 好奇型：往没去过的方向探索
-      this._wanderFar();
-      this._think(Math.random() > 0.5 ? '那边有什么呢...' : '');
+    // 优先级4：能合成且需要合成（30%概率跳过，先干别的，增加行为多样性）
+    const available = this.crafting.getAvailable();
+    if (available.length > 0 && Math.random() > 0.3) {
+      // 判断是否真的需要这个配方
+      const shouldCraft = (id) => {
+        if (id === 'basic_shelter') return !ai.shelterPos;
+        if (id === 'campfire') return !ai.campfirePos;
+        if (id === 'stone_spear') return !ai.equipment.weapon;
+        if (id === 'stone_axe') return !this._hasItems('石斧', 1) && !ai.equipment.weapon;
+        if (id === 'stick') return !this._hasItems('木棍', 2); // 最多备2个
+        if (id === 'cooked_meat') return this._hasItems('生肉', 1);
+        return false;
+      };
+
+      const priority = ['basic_shelter', 'campfire', 'stone_spear', 'cooked_meat', 'stick', 'stone_axe'];
+      for (const id of priority) {
+        const recipe = available.find(r => r.id === id);
+        if (!recipe || !shouldCraft(id)) continue;
+
+        // 需要在篝火旁？
+        if (recipe.facility === 'campfire' && ai.campfirePos) {
+          const distCamp = Math.hypot(ai.x - ai.campfirePos.x, ai.y - ai.campfirePos.y);
+          if (distCamp > 60) {
+            this.action = ACTION.GOTO;
+            this.targetX = ai.campfirePos.x;
+            this.targetY = ai.campfirePos.y;
+            this._think('回去篝火旁...');
+            return;
+          }
+        }
+
+        this.action = ACTION.CRAFT;
+        this.craftTarget = id;
+        this.craftProgress = 0;
+        this._think('做' + recipe.name + '...');
+        return;
+      }
     }
+
+    // 优先级5：主动采集缺少的资源（20%概率先闲逛一下）
+    const needed = this._whatDoINeed();
+    if (needed && Math.random() > 0.2) {
+      const res = this._findNearestResource(needed);
+      if (res) {
+        this._goCollect(res.obj);
+        const names = { wood:'木头', stone:'石头', grass:'草', berry:'浆果', herb:'止血草', clay:'粘土' };
+        this._think('去采' + (names[needed] || '资源') + '...');
+        return;
+      }
+    }
+
+    // 优先级6：有生肉去篝火旁烤
+    if (this._hasItems('生肉', 1) && ai.campfirePos) {
+      const distCamp = Math.hypot(ai.x - ai.campfirePos.x, ai.y - ai.campfirePos.y);
+      if (distCamp > 60) {
+        this.action = ACTION.GOTO;
+        this.targetX = ai.campfirePos.x;
+        this.targetY = ai.campfirePos.y;
+        this._think('回去把肉烤了...');
+        return;
+      }
+    }
+
+    // 优先级7：篝火快没燃料了
+    if (ai.campfirePos && ai.campfireFuel <= 1 && !this._hasItems('木头', 2)) {
+      const tree = this._findNearestResource('wood');
+      if (tree) {
+        this._goCollect(tree.obj);
+        this._think('得去砍点柴火...');
+        return;
+      }
+    }
+
+    // 优先级8：有武器就追兔子
+    if (ai.equipment.weapon) {
+      const rabbit = this._findNearest(this.world.rabbits, 250);
+      if (rabbit) {
+        this.action = ACTION.HUNT;
+        this.huntTarget = rabbit.obj;
+        this.targetX = rabbit.obj.x;
+        this.targetY = rabbit.obj.y;
+        this._think('追兔子！');
+        return;
+      }
+    }
+
+    // 默认：按性格自由行动
+    // 偶尔停下来"看看周围"
+    if (Math.random() < 0.15) {
+      ai.expression = 'curious';
+      this._think('看看周围...');
+      this.action = ACTION.IDLE;
+      this.thinkCooldown = 2 + Math.random() * 3; // 停一会儿再决策
+      return;
+    }
+
+    const wanderRadius = personality === 'cautious' ? 300 : personality === 'reckless' ? 600 : 450;
+    // 有时从家出发，有时从当前位置出发
+    const center = Math.random() > 0.4 ? (ai.shelterPos || { x: ai.x, y: ai.y }) : { x: ai.x, y: ai.y };
+    this._wanderNear(center, wanderRadius);
+    const thoughts = {
+      cautious: ['在附近看看...', '小心翼翼...', '安全第一...', '这里还算安全', '要不要走远点呢...'],
+      reckless: ['冲啊！', '去看看！', '不怕不怕！', '那边是什么！', '哈哈冒险！'],
+      curious: ['那边有什么呢...', '好想去看看...', '探索！', '这个没见过', '走远点看看'],
+    };
+    const t = thoughts[personality] || thoughts.cautious;
+    if (Math.random() > 0.5) this._think(t[Math.floor(Math.random() * t.length)]);
   }
 
   _execute(dt) {
     const ai = this.gs.ai;
     const speed = this.action === ACTION.FLEE ? 2.5 :
-                  this.action === ACTION.RETURN_HOME ? 1.8 : 1.2;
+                  this.action === ACTION.RETURN_HOME ? 1.8 :
+                  this.action === ACTION.HUNT ? 2.0 : 1.2;
 
     switch (this.action) {
       case ACTION.GOTO:
       case ACTION.FLEE:
       case ACTION.RETURN_HOME:
       case ACTION.WANDER: {
-        const dx = this.targetX - ai.x;
-        const dy = this.targetY - ai.y;
+        const dx = this.targetX - ai.x, dy = this.targetY - ai.y;
         const dist = Math.hypot(dx, dy);
         if (dist > 5) {
           ai.x += (dx / dist) * speed;
           ai.y += (dy / dist) * speed;
-          // 地图边界限制
-          ai.x = Math.max(30, Math.min(this.gs.ai.x, 3170));
-          ai.y = Math.max(30, Math.min(this.gs.ai.y, 2370));
+          ai.x = Math.max(30, Math.min(3170, ai.x));
+          ai.y = Math.max(30, Math.min(2370, ai.y));
         } else {
-          // 到达目标
           if (this.action === ACTION.GOTO && this.collectTarget) {
             this.action = ACTION.COLLECT;
             this.collectProgress = 0;
@@ -149,40 +252,96 @@ export class AIBehavior {
             this.action = ACTION.IDLE;
           }
         }
-        // 移动时表情
         if (this.action === ACTION.WANDER) ai.expression = 'normal';
         if (this.action === ACTION.GOTO) ai.expression = 'curious';
         break;
       }
 
+      case ACTION.HUNT: {
+        if (!this.huntTarget || this.huntTarget.dead) {
+          this.action = ACTION.IDLE;
+          break;
+        }
+        // 追猎物
+        const dx = this.huntTarget.x - ai.x, dy = this.huntTarget.y - ai.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 30) {
+          ai.x += (dx / dist) * speed;
+          ai.y += (dy / dist) * speed;
+          ai.expression = 'determined';
+        } else if (this.combat.canAttack()) {
+          // 攻击
+          const result = this.combat.attack(this.huntTarget);
+          if (result === 'killed') {
+            ai.expression = 'happy';
+            this._think('抓到了！');
+            this.huntTarget.dead = true;
+            // 掉落生肉
+            const meat = { type: 'food', name: '生肉', count: this.huntTarget.meatDrop || 1,
+                          maxStack: 5, expiryDay: this.gs.day + 1, hungerRestore: 10 };
+            this._addToInventory(meat);
+            this.gs.logEvent('猎杀' + (this.huntTarget.species || '动物'), '成功', '获得生肉');
+            this.huntTarget = null;
+            this.action = ACTION.IDLE;
+          } else {
+            this._think('打！');
+          }
+        }
+        break;
+      }
+
       case ACTION.COLLECT: {
         this.collectProgress += dt;
-        ai.expression = 'normal';
-        this._think('采集中...');
-        // 采集需要2秒
-        if (this.collectProgress >= 2) {
-          if (this.collectTarget && !this.collectTarget.depleted) {
-            // 采集成功
-            this.collectTarget.depleted = true;
+        ai.expression = 'determined';
+        const ct = this.collectTarget;
+        if (!ct) { this.action = ACTION.IDLE; break; }
+
+        const resType = RESOURCE_TYPES[ct.resourceType];
+        const collectTime = resType ? resType.collectTime : 2;
+        const hasAxe = ai.inventory.find(i => i.name === '石斧');
+        const axeBonus = hasAxe && (ct.resourceType === 'wood' || ct.resourceType === 'stone') ? 0.5 : 1;
+        const actualTime = collectTime * axeBonus;
+
+        // 暴露采集进度给渲染层
+        const pct = Math.min(100, Math.round(this.collectProgress / actualTime * 100));
+        this.gs.ai.collectingInfo = { name: resType ? resType.name : '资源', progress: pct };
+
+        if (this.collectProgress >= actualTime) {
+          this.gs.ai.collectingInfo = null;
+          if (!ct.depleted) {
+            ct.depleted = true;
+            const res = resType || { name: '资源', type: 'material' };
             const item = {
-              type: 'food',
-              name: '浆果',
+              type: res.type,
+              name: res.name,
               count: 1,
-              maxStack: 5,
-              expiryDay: this.gs.day + 2, // 2天后腐烂
+              maxStack: res.type === 'food' ? 5 : 10,
             };
-            this._addToInventory(item);
-            ai.expression = 'happy';
-            this._think('采到浆果了！');
-            this.gs.logEvent('采集浆果', '成功', '找到浆果丛');
-            // 采完直接吃
-            if (ai.hunger < 60) {
+            if (res.shelfLife) item.expiryDay = this.gs.day + res.shelfLife;
+            if (res.hungerRestore) item.hungerRestore = res.hungerRestore;
+
+            if (this._addToInventory(item)) {
+              ai.expression = 'happy';
+              this._think('采到' + res.name + '了！');
+              this.gs.logEvent('采集' + res.name, '成功', '');
+            } else {
+              this._think('背包满了...');
+            }
+
+            // 无限资源3秒后刷新
+            if (res.infinite) {
+              setTimeout(() => { ct.depleted = false; }, 3000);
+            }
+
+            // 采完食物且饿了就吃
+            if (res.type === 'food' && ai.hunger < 60) {
               this.action = ACTION.EAT;
             } else {
               this.action = ACTION.IDLE;
             }
           } else {
             this._think('这里已经没有了...');
+            this.gs.ai.collectingInfo = null;
             this.action = ACTION.IDLE;
           }
           this.collectTarget = null;
@@ -192,19 +351,52 @@ export class AIBehavior {
 
       case ACTION.EAT: {
         const foodIdx = ai.inventory.findIndex(i => i.type === 'food');
-        if (foodIdx >= 0) {
-          const food = ai.inventory[foodIdx];
-          // 恢复饥饿值
-          const restore = food.name === '浆果' ? 20 :
-                         food.name === '烤肉' ? 40 :
-                         food.name === '蜂蜜' ? 50 : 15;
+        if (foodIdx < 0) { this.gs.ai.eatingInfo = null; this.action = ACTION.IDLE; break; }
+        this.eatProgress = (this.eatProgress || 0) + dt;
+        ai.expression = 'happy';
+        const food = ai.inventory[foodIdx];
+        const eatTime = 1.5;
+        const pct = Math.min(100, Math.round(this.eatProgress / eatTime * 100));
+        this.gs.ai.eatingInfo = { name: food.name, progress: pct };
+
+        if (this.eatProgress >= eatTime) {
+          const restore = food.hungerRestore || 15;
           ai.hunger = Math.min(100, ai.hunger + restore);
           food.count--;
           if (food.count <= 0) ai.inventory.splice(foodIdx, 1);
-          ai.expression = 'happy';
-          this._think('真好吃！');
-          this.gs.logEvent('进食 ' + food.name, '成功', `饥饿恢复到${Math.round(ai.hunger)}%`);
+          this._think('吃' + food.name + '！真好吃');
+          this.gs.logEvent('进食' + food.name, '成功', `饥饿恢复到${Math.round(ai.hunger)}%`);
+          this.gs.ai.eatingInfo = null;
+          this.eatProgress = 0;
+          this.action = ACTION.IDLE;
         }
+        break;
+      }
+
+      case ACTION.CRAFT: {
+        if (!this.craftTarget) { this.action = ACTION.IDLE; break; }
+        this.craftProgress = (this.craftProgress || 0) + dt;
+        ai.expression = 'thinking';
+        // 合成需要2秒
+        if (this.craftProgress < 2) {
+          // 显示进度
+          const pct = Math.round(this.craftProgress / 2 * 100);
+          this.gs.ai.craftingInfo = { name: this.craftTarget, progress: pct };
+          break;
+        }
+        // 合成完成
+        if (this.crafting.canCraft(this.craftTarget)) {
+          const recipe = this.crafting.getRecipe(this.craftTarget);
+          this.crafting.craft(this.craftTarget);
+          ai.expression = 'happy';
+          this._think('做好了' + (recipe ? recipe.name : '') + '！');
+          this.gs.logEvent('合成' + (recipe ? recipe.name : this.craftTarget), '成功', '');
+        } else {
+          this._think('材料不够了...');
+        }
+        this.gs.ai.craftingInfo = null;
+        this.craftTarget = null;
+        this.craftProgress = 0;
         this.action = ACTION.IDLE;
         break;
       }
@@ -216,33 +408,117 @@ export class AIBehavior {
     }
   }
 
+  // 狼的追击逻辑
+  _checkWolfChase(dt) {
+    const ai = this.gs.ai;
+    for (const w of this.world.wolves) {
+      if (w.dead) continue;
+      const dist = Math.hypot(w.x - ai.x, w.y - ai.y);
+
+      // 狼的追击范围
+      if (dist < 200) {
+        // 狼向AI移动
+        const dx = ai.x - w.x, dy = ai.y - w.y;
+        const d = Math.hypot(dx, dy) || 1;
+        w.x += (dx / d) * 0.8 * dt * 60;
+        w.y += (dy / d) * 0.8 * dt * 60;
+        w.chasing = true;
+
+        // 狼攻击
+        if (dist < 25) {
+          if (!w.attackCooldown || w.attackCooldown <= 0) {
+            this.combat.animalAttack(w);
+            this.gs.logEvent('被狼攻击', '受伤', `生命值${Math.round(ai.hp)}%`);
+            ai.expression = 'scared';
+            this._think('被咬了！好疼！');
+            w.attackCooldown = 2;
+          }
+        }
+      } else {
+        w.chasing = false;
+      }
+
+      if (w.attackCooldown) w.attackCooldown -= dt;
+    }
+  }
+
   // 工具方法
   _think(text) {
     if (text && text !== this.lastThought) {
       this.gs.ai.bubble = text;
       this.lastThought = text;
+      this.thoughtTimer = 3; // 显示3秒
     }
   }
 
-  _findNearestBerry() {
+  _goCollect(resourceObj) {
+    this.action = ACTION.GOTO;
+    this.targetX = resourceObj.x;
+    this.targetY = resourceObj.y;
+    this.collectTarget = resourceObj;
+  }
+
+  _fleeFrom(fx, fy) {
     const ai = this.gs.ai;
-    let nearest = null, minDist = Infinity;
-    for (const b of this.world.berries) {
-      if (b.depleted) continue;
-      const d = Math.hypot(b.x - ai.x, b.y - ai.y);
-      if (d < minDist) { minDist = d; nearest = b; }
+    const dx = ai.x - fx, dy = ai.y - fy;
+    const d = Math.hypot(dx, dy) || 1;
+    this.targetX = ai.x + (dx / d) * 250;
+    this.targetY = ai.y + (dy / d) * 250;
+    this.targetX = Math.max(30, Math.min(3170, this.targetX));
+    this.targetY = Math.max(30, Math.min(2370, this.targetY));
+    this.action = ACTION.FLEE;
+  }
+
+  _findNearest(list, maxDist) {
+    const ai = this.gs.ai;
+    let nearest = null, minDist = maxDist;
+    for (const obj of list) {
+      if (obj.dead || obj.depleted) continue;
+      const d = Math.hypot(obj.x - ai.x, obj.y - ai.y);
+      if (d < minDist) { minDist = d; nearest = { obj, dist: d }; }
     }
     return nearest;
   }
 
-  _findNearestThreat() {
+  _findNearestResource(resourceType) {
+    const list = this.world.resources.filter(r => r.resourceType === resourceType && !r.depleted);
     const ai = this.gs.ai;
     let nearest = null, minDist = Infinity;
-    for (const w of this.world.wolves) {
-      const d = Math.hypot(w.x - ai.x, w.y - ai.y);
-      if (d < minDist) { minDist = d; nearest = { x: w.x, y: w.y, dist: d }; }
+    for (const r of list) {
+      const d = Math.hypot(r.x - ai.x, r.y - ai.y);
+      if (d < minDist) { minDist = d; nearest = { obj: r, dist: d }; }
     }
     return nearest;
+  }
+
+  _hasItems(name, count) {
+    return this.gs.ai.inventory.filter(i => i.name === name).reduce((s, i) => s + i.count, 0) >= count;
+  }
+
+  _whatDoINeed() {
+    const ai = this.gs.ai;
+    // 阶段1：庇护所（草+木头）
+    if (!ai.shelterPos) {
+      if (!this._hasItems('草', 1)) return 'grass';
+      if (!this._hasItems('木头', 1)) return 'wood';
+    }
+    // 阶段2：篝火（石头+木头）
+    if (!ai.campfirePos) {
+      if (!this._hasItems('石头', 1)) return 'stone';
+      if (!this._hasItems('木头', 1)) return 'wood';
+    }
+    // 阶段3：武器（木棍→需要木头，石矛→需要木棍+石头×2）
+    if (!ai.equipment.weapon) {
+      if (!this._hasItems('木棍', 1)) {
+        if (!this._hasItems('木头', 1)) return 'wood';
+      }
+      if (this._hasItems('木棍', 1) && !this._hasItems('石头', 2)) return 'stone';
+    }
+    // 阶段4：补充木头（篝火燃料+备用）
+    if (!this._hasItems('木头', 3)) return 'wood';
+    // 阶段5：补充食物
+    if (ai.hunger < 70) return 'berry';
+    return null;
   }
 
   _wanderNear(center, radius) {
@@ -257,27 +533,16 @@ export class AIBehavior {
     const ai = this.gs.ai;
     const angle = Math.random() * Math.PI * 2;
     const dist = 150 + Math.random() * 300;
-    this.targetX = ai.x + Math.cos(angle) * dist;
-    this.targetY = ai.y + Math.sin(angle) * dist;
-    // 限制在地图内
-    this.targetX = Math.max(50, Math.min(3150, this.targetX));
-    this.targetY = Math.max(50, Math.min(2350, this.targetY));
+    this.targetX = Math.max(50, Math.min(3150, ai.x + Math.cos(angle) * dist));
+    this.targetY = Math.max(50, Math.min(2350, ai.y + Math.sin(angle) * dist));
     this.action = ACTION.WANDER;
   }
 
   _addToInventory(item) {
     const inv = this.gs.ai.inventory;
-    // 尝试堆叠
-    const existing = inv.find(i => i.name === item.name && i.count < i.maxStack);
-    if (existing) {
-      existing.count++;
-      return true;
-    }
-    // 新格子
-    if (inv.length < this.gs.ai.inventorySize) {
-      inv.push({ ...item });
-      return true;
-    }
-    return false; // 背包满了
+    const existing = inv.find(i => i.name === item.name && i.count < (i.maxStack || 5));
+    if (existing) { existing.count += item.count; return true; }
+    if (inv.length < this.gs.ai.inventorySize) { inv.push({ ...item }); return true; }
+    return false;
   }
 }
