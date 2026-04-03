@@ -167,10 +167,12 @@ wait: 原地等待观察
       prompt += `${memorySummary.unexploredHint}\n`;
     }
 
-    // 可合成
+    // 可合成（明确告诉LLM能不能合成）
     const craftable = gameState._craftingSystem ? gameState._craftingSystem.getAvailable() : [];
     if (craftable.length > 0) {
-      prompt += `\n可合成: ${craftable.map(r => r.name).join('、')}\n`;
+      prompt += `\n可以合成: ${craftable.map(r => r.name + '(' + r.id + ')').join('、')}\n`;
+    } else {
+      prompt += `\n当前没有足够材料合成任何东西\n`;
     }
 
     prompt += `\n白天剩余:${timeLeft}秒`;

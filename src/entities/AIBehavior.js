@@ -492,20 +492,27 @@ export class AIBehavior {
 
       case ACTION.CRAFT: {
         if (!this.craftTarget) { this.action = ACTION.IDLE; break; }
+        // 先检查能不能合成（避免等2秒后才发现不行）
+        if (!this.crafting.canCraft(this.craftTarget)) {
+          const recipe = this.crafting.getRecipe(this.craftTarget);
+          logger.warn('决策', `合成失败：${recipe ? recipe.name : this.craftTarget}，材料不足`);
+          this.gs.ai.craftingInfo = null;
+          this.craftTarget = null;
+          this.craftProgress = 0;
+          this.lastTrigger = '合成失败，材料不足（需要先采集材料）';
+          this.action = ACTION.IDLE;
+          break;
+        }
         this.craftProgress = (this.craftProgress || 0) + dt;
         ai.expression = 'thinking';
         const pct = Math.round(this.craftProgress / 2 * 100);
         this.gs.ai.craftingInfo = { name: this.craftTarget, progress: Math.min(100, pct) };
         if (this.craftProgress < 2) break;
-        if (this.crafting.canCraft(this.craftTarget)) {
-          const recipe = this.crafting.getRecipe(this.craftTarget);
-          this.crafting.craft(this.craftTarget);
-          ai.expression = 'happy';
-          this.gs.logEvent('合成' + (recipe ? recipe.name : this.craftTarget), '成功', '');
-          this.lastTrigger = '合成完成：' + (recipe ? recipe.name : this.craftTarget);
-        } else {
-          this.lastTrigger = '合成失败，材料不足';
-        }
+        const recipe = this.crafting.getRecipe(this.craftTarget);
+        this.crafting.craft(this.craftTarget);
+        ai.expression = 'happy';
+        this.gs.logEvent('合成' + (recipe ? recipe.name : this.craftTarget), '成功', '');
+        this.lastTrigger = '合成完成：' + (recipe ? recipe.name : this.craftTarget);
         this.gs.ai.craftingInfo = null;
         this.craftTarget = null;
         this.craftProgress = 0;
