@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.3.9';
+export const VERSION = 'v0.4.1';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -11,6 +11,7 @@ import { GameState, PHASE } from './game/GameState.js';
 import { NightUI } from './render/NightUI.js';
 import { AIBehavior } from './entities/AIBehavior.js';
 import { MapMemory } from './systems/MapMemory.js';
+import { LocalLLM } from './ai/LocalLLM.js';
 import { logger } from './systems/Logger.js';
 import { wobble } from './render/SketchTools.js';
 
@@ -285,10 +286,14 @@ import { CombatSystem } from './entities/Combat.js';
 const craftingSystem = new CraftingSystem(gs);
 const combatSystem = new CombatSystem(gs);
 const mapMemory = new MapMemory(map.width, map.height);
+const localLLM = new LocalLLM();
 const worldObjects = { resources, rabbits, wolves, deers, fishes, foxes, shelterPos, campfirePos };
-const aiBehavior = new AIBehavior(gs, worldObjects, craftingSystem, combatSystem, mapMemory);
+const aiBehavior = new AIBehavior(gs, worldObjects, craftingSystem, combatSystem, mapMemory, localLLM);
 
+// 初始化 LLM
 logger.info('游戏', '游戏启动', { version: VERSION, personality: gs.ai.personality });
+localLLM.buildSystemPrompt(gs.ai.personality, gs.strategyBook);
+localLLM.warmup();
 
 // ===== 动物更新 =====
 function updateAnimals() {
@@ -536,6 +541,8 @@ function enterNightFlow() {
         { type: 'keep', text: '保持基础生存优先' },
       ];
       gs.finishStrategyUpdate(gs.strategyBook + '\n' + msg, mockDiff);
+      // 重建 LLM system prompt（策略手册更新了）
+      localLLM.buildSystemPrompt(gs.ai.personality, gs.strategyBook);
     },
     // onNext：进入下一阶段
     () => {
