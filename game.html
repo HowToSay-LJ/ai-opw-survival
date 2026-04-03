@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 生存游戏 v0.1.2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #e8e4dc;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+  canvas {
+    border-radius: 8px;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.15);
+  }
+  #minimap {
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    border: 2px solid #aaa;
+    border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="720"></canvas>
+<canvas id="minimap" width="140" height="140"></canvas>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 生存游戏 - 大地图简笔画世界</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#e8e4dc;display:flex;justify-content:center;align-items:center;min-height:100vh;overflow:hidden}
+  canvas{border-radius:8px;box-shadow:0 2px 20px rgba(0,0,0,0.15)}
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="720"></canvas>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let time=0;
+const VW=cv.width,VH=cv.height; // 视口大小
+const MW=3200,MH=2400; // 世界大小
+
+// ===== 和sketch-animated完全一样的手绘工具 =====
+const jitCache={};
+function jitS(id,amp){if(!jitCache[id])jitCache[id]=(Math.sin(id*127.1)*43758.5)%1*amp-amp/2;return jitCache[id];}
+function wobble(id,amp,speed){return Math.sin(time*speed+id*3.7)*amp;}
+
+const INK='#3a3a3a',INK_L='#8a8a8a',PAPER='#f5f1e8',PAPER_LINE='#d8d4cc';
+const PEACH='#ffe8d0',BLUSH='rgba(240,140,140,0.35)',RED_B='rgba(220,70,80,0.6)';
+
+function sketchLine(x1,y1,x2,y2,id){
+  const s=Math.max(3,Math.floor(Math.hypot(x2-x1,y2-y1)/8));
+  ctx.beginPath();ctx.moveTo(x1+jitS(id,1),y1+jitS(id+1,1));
+  for(let i=1;i<=s;i++){const t=i/s;ctx.lineTo(x1+(x2-x1)*t+jitS(id+i*2,1),y1+(y2-y1)*t+jitS(id+i*2+1,1));}
+  ctx.stroke();
+}
+function sketchCircle(x,y,r,fill,id){
+  id=id||0;ctx.beginPath();
+  for(let i=0;i<=48;i++){const a=(i/48)*Math.PI*2;const rr=r+jitS(id+i,1);
+  if(i===0)ctx.moveTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr);else ctx.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr);}
+  ctx.closePath();if(fill){ctx.fill();ctx.stroke();}else ctx.stroke();
+}
+function sketchEllipse(x,y,rx,ry,fill,id){
+  id=id||0;ctx.beginPath();
+  for(let i=0;i<=48;i++){const a=(i/48)*Math.PI*2;
+  ctx.lineTo(x+Math.cos(a)*(rx+jitS(id+i,0.6)),y+Math.sin(a)*(ry+jitS(id+i+50,0.6)));}
+  ctx.closePath();if(fill){ctx.fill();ctx.stroke();}else ctx.stroke();
+}
+function sketchArc(x,y,r,sa,ea,id){
+  id=id||0;ctx.beginPath();
+  for(let i=0;i<=20;i++){const a=sa+(ea-sa)*(i/20);const rr=r+jitS((id||0)+i,0.6);
+  if(i===0)ctx.moveTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr);else ctx.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr);}
+  ctx.stroke();
+}
+
+// ===== 背景缓存（和sketch-animated完全一样的方式：纸+网格+贝塞尔曲线地形） =====
+let bgCache=null;
+function drawBgToCache(){
+  const oc=document.createElement('canvas');oc.width=MW;oc.height=MH;
+  const ox=oc.getContext('2d');
+
+  // 纸
+  ox.fillStyle=PAPER;ox.fillRect(0,0,MW,MH);
+  for(let i=0;i<15000;i++){ox.fillStyle=`rgba(0,0,0,${Math.random()*0.02})`;ox.fillRect(Math.random()*MW,Math.random()*MH,1,1);}
+  // 网格
+  ox.strokeStyle=PAPER_LINE;ox.lineWidth=0.5;
+  for(let x=0;x<MW;x+=32){ox.beginPath();ox.moveTo(x,0);ox.lineTo(x,MH);ox.stroke();}
+  for(let y=0;y<MH;y+=32){ox.beginPath();ox.moveTo(0,y);ox.lineTo(MW,y);ox.stroke();}
+
+  // ===== 地形色块（大面积贝塞尔曲线，和sketch-animated完全一样的方法） =====
+
+  // 草地1（左下大片）
+  ox.fillStyle='rgba(120,180,100,0.15)';
+  ox.beginPath();ox.moveTo(0,600);ox.quadraticCurveTo(200,500,500,650);
+  ox.quadraticCurveTo(800,780,900,900);ox.quadraticCurveTo(600,1100,300,1200);
+  ox.lineTo(0,MH);ox.closePath();ox.fill();
+
+  // 草地2（中部）
+  ox.fillStyle='rgba(120,180,100,0.12)';
+  ox.beginPath();ox.moveTo(800,1200);ox.quadraticCurveTo(1100,1100,1400,1250);
+  ox.quadraticCurveTo(1600,1400,1500,1600);ox.quadraticCurveTo(1200,1700,900,1550);
+  ox.quadraticCurveTo(700,1400,800,1200);ox.closePath();ox.fill();
+
+  // 森林1（中上）
+  ox.fillStyle='rgba(100,160,80,0.25)';
+  ox.beginPath();ox.moveTo(600,300);ox.quadraticCurveTo(900,200,1200,350);
+  ox.quadraticCurveTo(1400,500,1300,750);ox.quadraticCurveTo(1100,850,800,750);
+  ox.quadraticCurveTo(550,600,600,300);ox.closePath();ox.fill();
+
+  // 森林2（左中，出生点附近）
+  ox.fillStyle='rgba(100,160,80,0.22)';
+  ox.beginPath();ox.moveTo(200,800);ox.quadraticCurveTo(450,700,650,850);
+  ox.quadraticCurveTo(750,1000,600,1100);ox.quadraticCurveTo(350,1150,200,1050);
+  ox.quadraticCurveTo(100,950,200,800);ox.closePath();ox.fill();
+
+  // 森林3（右下）
+  ox.fillStyle='rgba(100,160,80,0.2)';
+  ox.beginPath();ox.moveTo(2000,1600);ox.quadraticCurveTo(2300,1500,2500,1650);
+  ox.quadraticCurveTo(2650,1800,2500,1950);ox.quadraticCurveTo(2200,2050,2000,1900);
+  ox.quadraticCurveTo(1900,1750,2000,1600);ox.closePath();ox.fill();
+
+  // 山地1（右上）
+  ox.fillStyle='rgba(180,140,90,0.15)';
+  ox.beginPath();ox.moveTo(1800,0);ox.lineTo(MW,0);ox.lineTo(MW,700);
+  ox.quadraticCurveTo(2800,900,2400,800);ox.quadraticCurveTo(2000,700,1800,500);
+  ox.quadraticCurveTo(1650,300,1800,0);ox.closePath();ox.fill();
+
+  // 山地2（中右）
+  ox.fillStyle='rgba(180,140,90,0.18)';
+  ox.beginPath();ox.moveTo(2200,900);ox.quadraticCurveTo(2600,800,2800,1000);
+  ox.quadraticCurveTo(2900,1200,2700,1350);ox.quadraticCurveTo(2400,1400,2200,1250);
+  ox.quadraticCurveTo(2050,1100,2200,900);ox.closePath();ox.fill();
+
+  // 山地3（底部）
+  ox.fillStyle='rgba(180,140,90,0.13)';
+  ox.beginPath();ox.moveTo(1200,2000);ox.quadraticCurveTo(1500,1900,1800,2050);
+  ox.quadraticCurveTo(2000,2200,1800,MH);ox.lineTo(1200,MH);ox.closePath();ox.fill();
+
+  // 河流1（从上到下蜿蜒）
+  ox.fillStyle='rgba(100,170,220,0.2)';
+  ox.beginPath();
+  ox.moveTo(1500,0);ox.quadraticCurveTo(1450,300,1550,600);
+  ox.quadraticCurveTo(1650,900,1500,1200);ox.quadraticCurveTo(1350,1500,1450,1800);
+  ox.quadraticCurveTo(1500,2100,1400,MH);
+  ox.lineTo(1460,MH);ox.quadraticCurveTo(1560,2100,1510,1800);
+  ox.quadraticCurveTo(1410,1500,1560,1200);ox.quadraticCurveTo(1710,900,1610,600);
+  ox.quadraticCurveTo(1510,300,1560,0);
+  ox.closePath();ox.fill();
+
+  // 河流2（横向小河）
+  ox.fillStyle='rgba(100,170,220,0.18)';
+  ox.beginPath();
+  ox.moveTo(0,1500);ox.quadraticCurveTo(300,1450,600,1500);
+  ox.quadraticCurveTo(900,1550,1200,1480);ox.quadraticCurveTo(1350,1460,1500,1500);
+  ox.lineTo(1500,1540);ox.quadraticCurveTo(1350,1500,1200,1520);
+  ox.quadraticCurveTo(900,1590,600,1540);ox.quadraticCurveTo(300,1490,0,1540);
+  ox.closePath();ox.fill();
+
+  // 湖泊1
+  ox.fillStyle='rgba(100,170,220,0.2)';
+  ox.beginPath();ox.ellipse(900,500,80,50,-0.2,0,Math.PI*2);ox.fill();
+
+  // 湖泊2
+  ox.beginPath();ox.ellipse(400,1600,60,40,0.3,0,Math.PI*2);ox.fill();
+
+  // 沼泽
+  ox.fillStyle='rgba(110,140,100,0.18)';
+  ox.beginPath();ox.moveTo(100,1800);ox.quadraticCurveTo(300,1700,500,1800);
+  ox.quadraticCurveTo(600,1950,450,2100);ox.quadraticCurveTo(250,2200,100,2050);
+  ox.quadraticCurveTo(50,1950,100,1800);ox.closePath();ox.fill();
+
+  // 花田
+  ox.fillStyle='rgba(140,200,120,0.15)';
+  ox.beginPath();ox.moveTo(1700,1300);ox.quadraticCurveTo(1900,1250,2050,1350);
+  ox.quadraticCurveTo(2100,1500,1950,1580);ox.quadraticCurveTo(1750,1600,1650,1480);
+  ox.quadraticCurveTo(1600,1380,1700,1300);ox.closePath();ox.fill();
+
+  // 雪地（远处高山）
+  ox.fillStyle='rgba(200,210,225,0.2)';
+  ox.beginPath();ox.moveTo(2600,0);ox.lineTo(MW,0);ox.lineTo(MW,400);
+  ox.quadraticCurveTo(3000,500,2800,450);ox.quadraticCurveTo(2600,350,2600,0);ox.closePath();ox.fill();
+
+  // 区域标注
+  ox.fillStyle=INK_L;ox.font='italic 14px Georgia,serif';
+  ox.fillText('~ 安全草地 ~',250,1100);
+  ox.fillText('~ 森林 ~',850,550);
+  ox.fillText('~ 森林 ~',380,950);
+  ox.fillText('~ 山地 ~',2400,400);
+  ox.fillText('~ 山地 ~',2500,1100);
+  ox.fillText('~ 沼泽 ~',280,1950);
+  ox.fillText('~ 花田 ~',1820,1430);
+  ox.save();ox.translate(1580,800);ox.rotate(Math.PI/2);ox.fillText('~ 河流 ~',0,0);ox.restore();
+
+  bgCache=oc;
+}
+
+// ===== 物件绘制函数（和sketch-animated完全一样） =====
+function drawTree(x,y,size,id){
+  const sw=wobble(id,0.03,0.8);ctx.save();ctx.translate(x,y+size*1.5);ctx.rotate(sw);ctx.translate(-x,-(y+size*1.5));
+  ctx.strokeStyle=INK;ctx.lineWidth=1.5;ctx.fillStyle='rgba(100,170,80,0.12)';
+  sketchLine(x,y,x-1,y+size*1.5,id);sketchLine(x+4,y+2,x+3,y+size*1.5,id+10);
+  sketchCircle(x+1,y-size*0.3,size,true,id+20);ctx.fillStyle='rgba(100,170,80,0.08)';
+  sketchCircle(x-size*0.5,y,size*0.7,true,id+30);sketchCircle(x+size*0.6,y+1,size*0.65,true,id+40);
+  ctx.restore();
+}
+function drawGrass(x,y,id){
+  const sw=wobble(id,2,1.5);ctx.strokeStyle=INK_L;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x,y);ctx.quadraticCurveTo(x-3+sw,y-8,x-2+sw,y-12);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x+2,y);ctx.quadraticCurveTo(x+4+sw,y-9,x+6+sw,y-11);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x+1,y);ctx.quadraticCurveTo(x+1+sw*0.5,y-10,x+1+sw*0.5,y-14);ctx.stroke();
+}
+function drawRock(x,y,size,id){
+  ctx.strokeStyle=INK;ctx.lineWidth=1.5;ctx.fillStyle='rgba(160,160,160,0.1)';
+  const pts=[];for(let i=0;i<7;i++){const a=(i/7)*Math.PI*2-0.3;const r=size*(0.7+Math.abs(jitS(id+i*10,0.8)));pts.push([x+Math.cos(a)*r,y+Math.sin(a)*r*0.6]);}
+  ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);
+  ctx.closePath();ctx.fill();ctx.stroke();ctx.strokeStyle=INK_L;ctx.lineWidth=0.8;sketchLine(x-size*0.2,y-size*0.1,x+size*0.1,y+size*0.15,id+50);
+}
+function drawBerryBush(x,y,id){
+  const sw=wobble(id,1.5,1);ctx.strokeStyle=INK;ctx.lineWidth=1.3;ctx.fillStyle='rgba(100,160,80,0.12)';
+  sketchEllipse(x+sw*0.5,y,14,10,true,id);ctx.fillStyle=RED_B;ctx.strokeStyle=INK;ctx.lineWidth=1;
+  sketchCircle(x-5+sw,y-3,3,true,id+10);sketchCircle(x+4+sw,y-1,3,true,id+20);sketchCircle(x-1+sw*0.5,y+3,2.5,true,id+30);
+}
+function drawCampfire(x,y){
+  ctx.strokeStyle=INK;ctx.lineWidth=1.3;sketchLine(x-10,y+4,x+10,y+2,5000);sketchLine(x-8,y+1,x+8,y+5,5010);
+  const f1=wobble(1,3,4),f2=wobble(2,2,5),fh=18+wobble(3,3,3);
+  ctx.fillStyle='rgba(240,160,50,0.15)';ctx.beginPath();ctx.moveTo(x-6,y+2);ctx.quadraticCurveTo(x-8+f1,y-10,x+f2,y-fh);
+  ctx.quadraticCurveTo(x+8+f1,y-10,x+6,y+2);ctx.closePath();ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=1.3;ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x-3,y+1);ctx.quadraticCurveTo(x-1+f2,y-5,x+f1*0.3,y-fh*0.55);ctx.quadraticCurveTo(x+2-f2,y-5,x+3,y+1);ctx.closePath();ctx.stroke();
+  ctx.fillStyle=INK_L;const sy2=y-fh-5+wobble(10,4,2);ctx.beginPath();ctx.arc(x+f1*0.8-3,sy2,0.8,0,Math.PI*2);ctx.fill();
+}
+function drawShelter(x,y){
+  ctx.strokeStyle=INK;ctx.lineWidth=1.5;ctx.fillStyle='rgba(180,140,80,0.1)';
+  ctx.beginPath();ctx.moveTo(x-20,y+15);ctx.lineTo(x-20,y-5);ctx.lineTo(x,y-22);ctx.lineTo(x+20,y-5);ctx.lineTo(x+20,y+15);ctx.closePath();ctx.fill();ctx.stroke();
+  sketchLine(x-4,y+15,x-4,y+2,6000);sketchLine(x+4,y+15,x+4,y+2,6010);sketchLine(x-4,y+2,x+4,y+2,6020);
+  ctx.fillStyle=INK;ctx.beginPath();ctx.arc(x+2,y+9,1.2,0,Math.PI*2);ctx.fill();
+}
+function drawPine(x,y,size,id){
+  const sw=wobble(id,0.02,0.7);ctx.save();ctx.translate(x,y+size*1.5);ctx.rotate(sw);ctx.translate(-x,-(y+size*1.5));
+  ctx.strokeStyle=INK;ctx.lineWidth=1.5;ctx.fillStyle='rgba(70,130,60,0.1)';
+  sketchLine(x,y+2,x,y+size*1.5,id);
+  for(let i=0;i<3;i++){const ty=y-size*0.3*i,w=size*(1-i*0.25);
+  ctx.beginPath();ctx.moveTo(x-w,ty+size*0.5);ctx.lineTo(x,ty-size*0.3);ctx.lineTo(x+w,ty+size*0.5);ctx.closePath();ctx.fill();ctx.stroke();}
+  ctx.restore();
+}
+function drawMushroom(x,y,id){
+  ctx.strokeStyle=INK;ctx.lineWidth=1.3;ctx.fillStyle='rgba(230,220,210,0.15)';ctx.fillRect(x-1.5,y,3,5);ctx.strokeRect(x-1.5,y,3,5);
+  ctx.fillStyle='rgba(216,88,72,0.25)';ctx.beginPath();ctx.arc(x,y,4,Math.PI,0);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,0.5)';ctx.beginPath();ctx.arc(x-1.5,y-1.5,1,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+1.5,y-2,0.8,0,Math.PI*2);ctx.fill();
+}
+function drawFlower(x,y,id,ci){
+  const cols=['rgba(240,200,70,0.45)','rgba(232,136,208,0.45)','rgba(128,184,240,0.45)','rgba(240,120,100,0.45)','rgba(200,130,240,0.45)'];
+  const sw=wobble(id,1.5,1.2);ctx.strokeStyle=INK_L;ctx.lineWidth=0.7;
+  ctx.beginPath();ctx.moveTo(x,y);ctx.quadraticCurveTo(x+sw*0.5,y+3,x+sw*0.3,y+6);ctx.stroke();
+  ctx.fillStyle=cols[ci||0];ctx.strokeStyle=INK;ctx.lineWidth=0.7;
+  for(let i=0;i<5;i++){const a=(i/5)*Math.PI*2;ctx.beginPath();ctx.arc(x+Math.cos(a)*2.8+sw*0.3,y+Math.sin(a)*2.8,1.8,0,Math.PI*2);ctx.fill();}
+  ctx.fillStyle='rgba(255,255,200,0.5)';ctx.beginPath();ctx.arc(x+sw*0.3,y,1.2,0,Math.PI*2);ctx.fill();
+}
+function drawDeadTree(x,y,id){
+  ctx.strokeStyle=INK;ctx.lineWidth=1.5;sketchLine(x,y+12,x,y-8,id);sketchLine(x,y-4,x-8,y-12,id+10);sketchLine(x,y-6,x+6,y-14,id+20);
+}
+function drawCrystal(x,y){
+  ctx.fillStyle='rgba(160,120,220,0.1)';ctx.strokeStyle='rgba(120,80,180,0.5)';ctx.lineWidth=1.2;
+  ctx.beginPath();ctx.moveTo(x,y-12);ctx.lineTo(x+5,y+2);ctx.lineTo(x-5,y+2);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x+3,y-8);ctx.lineTo(x+7,y+1);ctx.lineTo(x+2,y+1);ctx.closePath();ctx.fill();ctx.stroke();
+}
+
+// ===== 动物（和sketch-animated完全一样） =====
+const rabbits=[
+  {x:350,y:1050,vx:0.3,phase:0,minX:280,maxX:450},
+  {x:600,y:900,vx:-0.2,phase:2,minX:530,maxX:700},
+  {x:900,y:1250,vx:0.25,phase:1,minX:820,maxX:1000},
+  {x:1800,y:1450,vx:-0.3,phase:3,minX:1720,maxX:1900},
+  {x:2200,y:1700,vx:0.2,phase:0.5,minX:2120,maxX:2300},
+];
+const wolves=[
+  {x:2500,y:400,vx:-0.15,phase:0,minX:2300,maxX:2700},
+  {x:2600,y:1100,vx:0.1,phase:1,minX:2450,maxX:2750},
+  {x:300,y:1950,vx:0.12,phase:2,minX:200,maxX:480},
+];
+const deers=[
+  {x:500,y:850,headY:0,eating:false,timer:0},
+  {x:1100,y:700,headY:0,eating:false,timer:60},
+  {x:1900,y:1500,headY:0,eating:false,timer:30},
+];
+const fishes=[
+  {x:880,y:490,vx:0.4,phase:0,minX:840,maxX:940},
+  {x:910,y:510,vx:-0.3,phase:1.5,minX:860,maxX:950},
+  {x:400,y:1590,vx:0.3,phase:0.8,minX:360,maxX:460},
+  {x:1530,y:600,vx:-0.25,phase:2,minX:1490,maxX:1570},
+  {x:1540,y:1200,vx:0.35,phase:1,minX:1500,maxX:1580},
+];
+const foxes=[
+  {x:700,y:500,vx:0.18,phase:0,minX:620,maxX:800},
+  {x:2100,y:1700,vx:-0.15,phase:1,minX:2020,maxX:2200},
+];
+
+function updateRabbit(r){r.x+=r.vx;r.phase+=0.05;if(r.x>r.maxX||r.x<r.minX)r.vx*=-1;}
+function drawRabbit(r,cx,cy){
+  const sx=r.x-cx,sy=r.y-cy;if(sx<-50||sx>VW+50||sy<-50||sy>VH+50)return;
+  const hop=Math.abs(Math.sin(r.phase*3))*5,flip=r.vx<0?-1:1;
+  ctx.save();ctx.translate(sx,sy-hop);ctx.scale(flip,1);
+  ctx.strokeStyle=INK;ctx.lineWidth=1.3;ctx.fillStyle='rgba(220,200,170,0.15)';
+  sketchEllipse(0,3,6,4.5,true,3000);sketchCircle(0,-4,5,true,3010);
+  ctx.fillStyle='rgba(240,180,180,0.15)';sketchEllipse(-3,-14-hop*0.3,2,5,true,3020);sketchEllipse(3,-14-hop*0.3,2,5,true,3030);
+  ctx.fillStyle=INK;ctx.beginPath();ctx.arc(-2,-5,1,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(2,-5,1,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+function updateWolf(w){w.x+=w.vx;w.phase+=0.02;if(w.x>w.maxX||w.x<w.minX)w.vx*=-1;}
+function drawWolf(w,cx,cy){
+  const sx=w.x-cx,sy=w.y-cy;if(sx<-50||sx>VW+50||sy<-50||sy>VH+50)return;
+  const flip=w.vx<0?-1:1;ctx.save();ctx.translate(sx,sy);ctx.scale(flip,1);
+  ctx.strokeStyle=INK;ctx.lineWidth=1.5;ctx.fillStyle='rgba(120,120,130,0.2)';
+  sketchEllipse(0,3,10,6,true,4000);sketchCircle(0,-6,7,true,4010);
+  ctx.beginPath();ctx.moveTo(-6,-8);ctx.lineTo(-3,-18);ctx.lineTo(0,-8);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,-8);ctx.lineTo(3,-18);ctx.lineTo(6,-8);ctx.stroke();
+  ctx.lineWidth=1.5;sketchLine(-5,-8,-2,-5,4020);sketchLine(5,-8,2,-5,4030);
+  ctx.fillStyle=INK;ctx.beginPath();ctx.arc(-3,-6,1.3,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(3,-6,1.3,0,Math.PI*2);ctx.fill();
+  const tw=wobble(w.phase*100,5,2);ctx.beginPath();ctx.moveTo(-10,1);ctx.quadraticCurveTo(-18,-5+tw,-15,-10+tw);ctx.stroke();
+  ctx.lineWidth=1;sketchLine(-3,-1,0,0,4040);sketchLine(0,0,3,-1,4050);
+  ctx.restore();
+}
+function updateDeer(d){d.timer++;if(d.timer%120===0)d.eating=!d.eating;d.headY+=(d.eating?8:0-d.headY)*0.05;}
+function drawDeer(d,cx,cy){
+  const sx=d.x-cx,sy=d.y-cy;if(sx<-50||sx>VW+50||sy<-50||sy>VH+50)return;
+  ctx.strokeStyle=INK;ctx.lineWidth=1.3;ctx.fillStyle='rgba(200,160,110,0.12)';
+  sketchEllipse(sx,sy+2,8,5,true,5000);sketchCircle(sx,sy-6+d.headY,5.5,true,5010);
+  ctx.fillStyle='rgba(230,215,190,0.15)';sketchEllipse(sx,sy+5,4.5,2.5,true,5015);
+  ctx.lineWidth=1.5;const as=wobble(55,1,0.5);
+  sketchLine(sx-3,sy-10+d.headY,sx-6+as,sy-20+d.headY,5020);sketchLine(sx-6+as,sy-17+d.headY,sx-9+as,sy-15+d.headY,5030);
+  sketchLine(sx+3,sy-10+d.headY,sx+6-as,sy-20+d.headY,5040);sketchLine(sx+6-as,sy-17+d.headY,sx+9-as,sy-15+d.headY,5050);
+  ctx.fillStyle=INK;ctx.beginPath();ctx.arc(sx-2,sy-7+d.headY,1.2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(sx+2,sy-7+d.headY,1.2,0,Math.PI*2);ctx.fill();
+}
+function updateFish(f){f.x+=f.vx;f.phase+=0.03;if(f.x>f.maxX||f.x<f.minX)f.vx*=-1;}
+function drawFish(f,cx,cy){
+  const sx=f.x-cx,sy=f.y-cy+Math.sin(f.phase*2)*3;if(sx<-50||sx>VW+50||sy<-50||sy>VH+50)return;
+  const flip=f.vx<0?-1:1;ctx.save();ctx.translate(sx,sy);ctx.scale(flip,1);
+  ctx.strokeStyle=INK;ctx.lineWidth=1.2;ctx.fillStyle='rgba(100,170,220,0.1)';
+  sketchEllipse(0,0,7,3,true,7000);ctx.beginPath();ctx.moveTo(6,0);ctx.lineTo(11,-4);ctx.lineTo(11,4);ctx.closePath();ctx.stroke();
+  ctx.fillStyle=INK;ctx.beginPath();ctx.arc(-2,-0.5,0.8,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle=INK_L;ctx.lineWidth=0.8;const bub=wobble(f.phase*50,3,2);ctx.beginPath();ctx.arc(-8,-4+bub,1.5,0,Math.PI*2);ctx.stroke();
+  ctx.restore();
+}
+function updateFox(f){f.x+=f.vx;f.phase+=0.03;if(f.x>f.maxX||f.x<f.minX)f.vx*=-1;}
+function drawFox(f,cx,cy){
+  const sx=f.x-cx,sy=f.y-cy;if(sx<-50||sx>VW+50||sy<-50||sy>VH+50)return;
+  const flip=f.vx<0?-1:1;ctx.save();ctx.translate(sx,sy);ctx.scale(flip,1);
+  ctx.strokeStyle=INK;ctx.lineWidth=1.3;ctx.fillStyle='rgba(220,140,60,0.12)';
+  sketchEllipse(0,2,8,5,true,6000);sketchCircle(0,-5,5.5,true,6010);
+  const tw=wobble(f.phase*80,4,1.5);ctx.fillStyle='rgba(220,140,60,0.08)';
+  ctx.beginPath();ctx.moveTo(-8,2);ctx.quadraticCurveTo(-16,-2+tw,-12,-8+tw);ctx.quadraticCurveTo(-8,-4+tw,-8,2);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.moveTo(-4,-8);ctx.lineTo(-2,-15);ctx.lineTo(0,-8);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,-8);ctx.lineTo(2,-15);ctx.lineTo(4,-8);ctx.stroke();
+  ctx.fillStyle=INK;ctx.beginPath();ctx.arc(-2,-6,1.2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(2,-6,1.2,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.15)';sketchEllipse(0,-2,3,2,true,6020);
+  ctx.restore();
+}
+
+// ===== AI角色（和sketch-animated完全一样） =====
+function drawAIChar(x,y,expr){
+  const br=wobble(99,0.5,2),as=wobble(77,8,3),ls=wobble(88,3,3);
+  ctx.strokeStyle=INK;ctx.lineWidth=1.8;
+  ctx.fillStyle='rgba(0,0,0,0.06)';ctx.beginPath();ctx.ellipse(x,y+22,14+br,4,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=PEACH;sketchEllipse(x,y+14+br*0.5,7,5+br*0.3,true,8000);
+  ctx.lineWidth=1.5;sketchLine(x-7,y+12,x-12+as*0.5,y+18+Math.abs(as)*0.3,8100);sketchLine(x+7,y+12,x+12-as*0.5,y+18-Math.abs(as)*0.3,8110);
+  sketchLine(x-3,y+19,x-4+ls,y+24,8120);sketchLine(x+3,y+19,x+4-ls,y+24,8130);
+  ctx.lineWidth=1.8;ctx.fillStyle=PEACH;sketchCircle(x,y,16-br*0.2,true,8050);
+  ctx.fillStyle=BLUSH;ctx.beginPath();ctx.arc(x-11,y+3,3.5,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+11,y+3,3.5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=INK;ctx.strokeStyle=INK;
+  switch(expr){
+    case'normal':ctx.beginPath();ctx.arc(x-5,y-2,1.8,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+5,y-2,1.8,0,Math.PI*2);ctx.fill();ctx.lineWidth=1.5;sketchLine(x-4,y+6,x+4,y+6,8060);break;
+    case'scared':ctx.lineWidth=1.5;sketchCircle(x-5,y-2,3.5,false,8061);sketchCircle(x+5,y-2,3.5,false,8062);ctx.beginPath();ctx.arc(x-5,y-2,1.2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+5,y-2,1.2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.moveTo(x-4,y+5);ctx.lineTo(x+4,y+5);ctx.lineTo(x,y+10);ctx.closePath();ctx.stroke();break;
+    case'happy':ctx.lineWidth=1.8;sketchArc(x-5,y-1,3.5,Math.PI,0,8063);sketchArc(x+5,y-1,3.5,Math.PI,0,8064);ctx.lineWidth=1.5;sketchArc(x,y+4,5,0.1,Math.PI-0.1,8065);break;
+    case'thinking':ctx.beginPath();ctx.arc(x-5,y-2,1.8,0,Math.PI*2);ctx.fill();ctx.lineWidth=1.5;sketchLine(x+3,y-2,x+7,y-2,8066);ctx.beginPath();ctx.moveTo(x-4,y+6);ctx.quadraticCurveTo(x-1,y+3,x+1,y+6);ctx.quadraticCurveTo(x+3,y+9,x+5,y+6);ctx.stroke();break;
+    case'curious':ctx.beginPath();ctx.arc(x-5,y-2,2.2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+5,y-2,2.2,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(x-4,y-3,0.9,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+6,y-3,0.9,0,Math.PI*2);ctx.fill();ctx.lineWidth=1.3;sketchCircle(x,y+6,2.5,false,8067);break;
+    case'determined':ctx.lineWidth=1.5;sketchLine(x-7,y-4,x-4,y-1,8068);sketchLine(x-4,y-1,x-7,y+2,8069);sketchLine(x+7,y-4,x+4,y-1,8070);sketchLine(x+4,y-1,x+7,y+2,8071);sketchLine(x-3,y+7,x+3,y+7,8072);break;
+  }
+}
+
+function drawBubble(x,y,text){
+  if(!text)return;
+  ctx.strokeStyle=INK;ctx.lineWidth=1.2;ctx.fillStyle='rgba(255,255,255,0.88)';
+  sketchCircle(x+18,y-14,2,true,9000);sketchCircle(x+24,y-22,3,true,9010);
+  ctx.font='12px Georgia,serif';const tw=ctx.measureText(text).width,bw=tw+24,bx=x+38+bw/2,by=y-36;
+  ctx.fillStyle='rgba(255,255,255,0.9)';ctx.beginPath();
+  for(let i=0;i<=48;i++){const a=(i/48)*Math.PI*2;const px=bx+Math.cos(a)*(bw/2+jitS(9020+i,0.8)),py=by+Math.sin(a)*(14+jitS(9070+i,0.8));
+  if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);}ctx.closePath();ctx.fill();ctx.strokeStyle=INK;ctx.stroke();
+  ctx.fillStyle=INK;ctx.textAlign='center';ctx.fillText(text,bx,by+4);ctx.textAlign='left';
+}
+
+// ===== AI 行为 =====
+const ai={x:400,y:1050,expr:'curious',bubble:'这里好像很安全...',wait:0,
+  path:[
+    {x:400,y:1050,w:120,e:'curious',b:'这里好像很安全...'},
+    {x:350,y:1000,w:60,e:'normal',b:''},
+    {x:300,y:980,w:90,e:'happy',b:'发现浆果了！'},
+    {x:350,y:920,w:80,e:'thinking',b:'要不要去森林看看...'},
+    {x:500,y:850,w:70,e:'curious',b:'森林里有什么呢？'},
+    {x:650,y:700,w:60,e:'normal',b:'好多树啊'},
+    {x:800,y:600,w:90,e:'thinking',b:'好像听到什么声音...'},
+    {x:900,y:550,w:50,e:'curious',b:'这里有个湖！'},
+    {x:850,y:650,w:60,e:'normal',b:'继续探索'},
+    {x:1000,y:750,w:50,e:'normal',b:''},
+    {x:1200,y:600,w:80,e:'thinking',b:'越来越深了...'},
+    {x:1400,y:500,w:40,e:'scared',b:'是狼的地盘！'},
+    {x:1200,y:650,w:40,e:'scared',b:'快跑！'},
+    {x:900,y:800,w:50,e:'determined',b:'还好跑掉了'},
+    {x:700,y:900,w:60,e:'normal',b:''},
+    {x:500,y:1000,w:80,e:'happy',b:'回到安全区了'},
+    {x:400,y:1100,w:70,e:'thinking',b:'去河边看看'},
+    {x:500,y:1300,w:60,e:'normal',b:''},
+    {x:600,y:1480,w:90,e:'curious',b:'好大的河！'},
+    {x:500,y:1400,w:70,e:'happy',b:'看到鱼了'},
+    {x:400,y:1200,w:50,e:'normal',b:'该回家了'},
+    {x:400,y:1080,w:100,e:'happy',b:'安全到家！'},
+  ],si:0
+};
+function updateAI(){
+  const s=ai.path[ai.si],dx=s.x-ai.x,dy=s.y-ai.y,d=Math.hypot(dx,dy);
+  if(d>2){ai.x+=dx/d*1;ai.y+=dy/d*1;}
+  else{ai.expr=s.e;ai.bubble=s.b;ai.wait++;if(ai.wait>=s.w){ai.wait=0;ai.si=(ai.si+1)%ai.path.length;}}
+}
+
+// ===== 相机 =====
+let camX=0,camY=0;
+function updateCam(){
+  const tx=Math.max(0,Math.min(MW-VW,ai.x-VW/2));
+  const ty=Math.max(0,Math.min(MH-VH,ai.y-VH/2));
+  camX+=(tx-camX)*0.06;camY+=(ty-camY)*0.06;
+}
+
+// ===== 静态物件（世界坐标） =====
+const trees=[[700,450,12],[800,380,14],[950,550,11],[850,650,13],[750,600,10],[1000,480,12],[1100,600,11],
+  [350,850,13],[450,900,11],[550,820,14],[650,950,10],[300,950,12],
+  [2100,1650,13],[2200,1700,11],[2300,1620,14],[2150,1750,12],[2350,1800,10]];
+const pines=[[1050,550,12],[1150,650,11],[950,700,10],[1200,500,13],
+  [250,880,11],[180,920,10]];
+const grasses=[[200,1100],[350,1150],[150,1200],[500,1180],[280,1050],[100,1300],[450,1250],
+  [800,1250],[950,1300],[1100,1350],[850,1200]];
+const rocks=[[2400,350,14],[2550,300,10],[2350,450,12],[2650,200,8],[2500,500,11],
+  [2300,1000,13],[2500,1050,10],[2600,1150,11],[2450,1200,9]];
+const berries=[[300,980],[450,870],[600,750],[380,1100],[250,1200]];
+const mushrooms=[[420,850],[580,750],[350,900]];
+const flowers=[[1750,1350],[1800,1380],[1850,1320],[1900,1400],[1780,1450],[1850,1500],[1920,1350],[1700,1400],[1950,1480],[1800,1520]];
+const deadTrees=[[200,1900],[350,1950],[450,2000],[300,2050]];
+const crystals=[[2500,400],[2600,350],[2480,480]];
+const campfirePos={x:440,y:1060};
+const shelterPos={x:380,y:1050};
+
+// ===== UI =====
+function drawUI(){
+  ctx.fillStyle='rgba(255,255,255,0.9)';ctx.strokeStyle=INK;ctx.lineWidth=1.2;
+  ctx.beginPath();ctx.roundRect(VW-130,15,115,35,8);ctx.fill();ctx.stroke();
+  ctx.fillStyle=INK;ctx.font='15px Georgia,serif';ctx.fillText('☀ 第 1 天',VW-118,38);
+  const px=VW-240,py=VH-125;
+  ctx.fillStyle='rgba(255,255,255,0.92)';ctx.strokeStyle=INK;ctx.lineWidth=1.2;
+  ctx.beginPath();ctx.roundRect(px,py,225,110,8);ctx.fill();ctx.stroke();
+  ctx.fillStyle=INK;ctx.font='bold 13px Georgia,serif';ctx.fillText('AI 状态',px+12,py+20);
+  ctx.font='12px Georgia,serif';
+  ctx.fillText('生命',px+12,py+42);ctx.strokeStyle=INK_L;ctx.lineWidth=1;ctx.strokeRect(px+52,py+32,100,12);
+  ctx.fillStyle='rgba(220,80,80,0.4)';ctx.fillRect(px+53,py+33,78,10);ctx.fillStyle=INK;ctx.fillText('80%',px+160,py+42);
+  ctx.fillText('饥饿',px+12,py+60);ctx.strokeStyle=INK_L;ctx.strokeRect(px+52,py+50,100,12);
+  ctx.fillStyle='rgba(100,170,80,0.4)';ctx.fillRect(px+53,py+51,55,10);ctx.fillStyle=INK;ctx.fillText('55%',px+160,py+60);
+  ctx.fillText('背包: 浆果×3  木头×2',px+12,py+80);
+  ctx.fillStyle=INK_L;ctx.font='italic 11px Georgia,serif';ctx.fillText('💭 '+(ai.bubble||'...'),px+12,py+98);
+  // 表情
+  ctx.fillStyle='rgba(255,255,255,0.9)';ctx.strokeStyle=INK;ctx.lineWidth=1.2;
+  ctx.beginPath();ctx.roundRect(15,15,300,60,8);ctx.fill();ctx.stroke();
+  ctx.fillStyle=INK;ctx.font='bold 12px Georgia,serif';ctx.fillText('表情',25,42);
+  const el=['normal','happy','scared','thinking','curious','determined'],ll=['平静','开心','害怕','思考','好奇','坚定'];
+  el.forEach((e,i)=>{drawAI(90+i*40,38,e,0.45);});
+  ctx.font='9px Georgia,serif';ctx.textAlign='center';ctx.fillStyle=INK_L;
+  ll.forEach((l,i)=>{ctx.fillText(l,90+i*40,62);});ctx.textAlign='left';
+}
+// 迷你版AI（用于表情栏）
+function drawAI(x,y,expr,sc){
+  ctx.save();ctx.translate(x,y);ctx.scale(sc,sc);
+  ctx.strokeStyle=INK;ctx.lineWidth=1.8/sc;ctx.fillStyle=PEACH;sketchCircle(0,0,16,true,8050+expr.length*10);
+  ctx.fillStyle=BLUSH;ctx.beginPath();ctx.arc(-11,3,3.5,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(11,3,3.5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=INK;ctx.strokeStyle=INK;
+  switch(expr){
+    case'normal':ctx.beginPath();ctx.arc(-5,-2,1.8,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(5,-2,1.8,0,Math.PI*2);ctx.fill();ctx.lineWidth=1.5/sc;sketchLine(-4,6,4,6,8060);break;
+    case'scared':ctx.lineWidth=1.5/sc;sketchCircle(-5,-2,3.5,false,8061);sketchCircle(5,-2,3.5,false,8062);ctx.beginPath();ctx.arc(-5,-2,1.2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(5,-2,1.2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.moveTo(-4,5);ctx.lineTo(4,5);ctx.lineTo(0,10);ctx.closePath();ctx.stroke();break;
+    case'happy':ctx.lineWidth=1.8/sc;sketchArc(-5,-1,3.5,Math.PI,0,8063);sketchArc(5,-1,3.5,Math.PI,0,8064);ctx.lineWidth=1.5/sc;sketchArc(0,4,5,0.1,Math.PI-0.1,8065);break;
+    case'thinking':ctx.beginPath();ctx.arc(-5,-2,1.8,0,Math.PI*2);ctx.fill();ctx.lineWidth=1.5/sc;sketchLine(3,-2,7,-2,8066);ctx.beginPath();ctx.moveTo(-4,6);ctx.quadraticCurveTo(-1,3,1,6);ctx.quadraticCurveTo(3,9,5,6);ctx.stroke();break;
+    case'curious':ctx.beginPath();ctx.arc(-5,-2,2.2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(5,-2,2.2,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(-4,-3,0.9,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(6,-3,0.9,0,Math.PI*2);ctx.fill();ctx.lineWidth=1.3/sc;sketchCircle(0,6,2.5,false,8067);break;
+    case'determined':ctx.lineWidth=1.5/sc;sketchLine(-7,-4,-4,-1,8068);sketchLine(-4,-1,-7,2,8069);sketchLine(7,-4,4,-1,8070);sketchLine(4,-1,7,2,8071);sketchLine(-3,7,3,7,8072);break;
+  }
+  ctx.restore();
+}
+
+// ===== 主循环 =====
+drawBgToCache();
+
+function frame(){
+  time+=0.016;
+  updateAI();updateCam();
+
+  // 动物更新
+  rabbits.forEach(updateRabbit);wolves.forEach(updateWolf);deers.forEach(updateDeer);fishes.forEach(updateFish);foxes.forEach(updateFox);
+
+  // 绘制背景（从大地图裁切视口区域）
+  ctx.drawImage(bgCache,camX,camY,VW,VH,0,0,VW,VH);
+
+  // 收集所有可绘制物体，按y排序
+  const draws=[];
+  const cx=camX,cy=camY;
+  const inView=(x,y,m)=>x-cx>-m&&x-cx<VW+m&&y-cy>-m&&y-cy<VH+m;
+
+  trees.forEach((t,i)=>{if(inView(t[0],t[1],40))draws.push({y:t[1],fn:()=>drawTree(t[0]-cx,t[1]-cy,t[2],i*200)});});
+  pines.forEach((t,i)=>{if(inView(t[0],t[1],40))draws.push({y:t[1],fn:()=>drawPine(t[0]-cx,t[1]-cy,t[2],i*200+1000)});});
+  grasses.forEach((g,i)=>{if(inView(g[0],g[1],20))draws.push({y:g[1],fn:()=>drawGrass(g[0]-cx,g[1]-cy,i*100)});});
+  rocks.forEach((r,i)=>{if(inView(r[0],r[1],30))draws.push({y:r[1],fn:()=>drawRock(r[0]-cx,r[1]-cy,r[2],i*300)});});
+  berries.forEach((b,i)=>{if(inView(b[0],b[1],30))draws.push({y:b[1],fn:()=>drawBerryBush(b[0]-cx,b[1]-cy,i*400)});});
+  mushrooms.forEach((m,i)=>{if(inView(m[0],m[1],20))draws.push({y:m[1],fn:()=>drawMushroom(m[0]-cx,m[1]-cy,i*500)});});
+  flowers.forEach((f,i)=>{if(inView(f[0],f[1],20))draws.push({y:f[1],fn:()=>drawFlower(f[0]-cx,f[1]-cy,i*150,i%5)});});
+  deadTrees.forEach((d,i)=>{if(inView(d[0],d[1],30))draws.push({y:d[1],fn:()=>drawDeadTree(d[0]-cx,d[1]-cy,i*250)});});
+  crystals.forEach((c,i)=>{if(inView(c[0],c[1],30))draws.push({y:c[1],fn:()=>drawCrystal(c[0]-cx,c[1]-cy)});});
+
+  if(inView(shelterPos.x,shelterPos.y,40))draws.push({y:shelterPos.y,fn:()=>drawShelter(shelterPos.x-cx,shelterPos.y-cy)});
+  if(inView(campfirePos.x,campfirePos.y,40))draws.push({y:campfirePos.y,fn:()=>drawCampfire(campfirePos.x-cx,campfirePos.y-cy)});
+
+  rabbits.forEach(r=>draws.push({y:r.y,fn:()=>drawRabbit(r,cx,cy)}));
+  wolves.forEach(w=>draws.push({y:w.y,fn:()=>drawWolf(w,cx,cy)}));
+  deers.forEach(d=>draws.push({y:d.y,fn:()=>drawDeer(d,cx,cy)}));
+  fishes.forEach(f=>draws.push({y:f.y,fn:()=>drawFish(f,cx,cy)}));
+  foxes.forEach(f=>draws.push({y:f.y,fn:()=>drawFox(f,cx,cy)}));
+
+  draws.push({y:ai.y+20,fn:()=>{drawAIChar(ai.x-cx,ai.y-cy,ai.expr);drawBubble(ai.x-cx,ai.y-cy,ai.bubble);}});
+
+  draws.sort((a,b)=>a.y-b.y);
+  for(const d of draws)d.fn();
+
+  drawUI();
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

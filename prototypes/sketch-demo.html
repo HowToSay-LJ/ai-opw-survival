@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 生存游戏 - 简笔画风格 Demo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #e8e4dc;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+  }
+  canvas {
+    border-radius: 8px;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.15);
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="720"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+// 手绘感：给线条加轻微抖动
+function sketchLine(x1, y1, x2, y2) {
+  const steps = Math.max(3, Math.floor(Math.hypot(x2-x1, y2-y1) / 8));
+  ctx.beginPath();
+  ctx.moveTo(x1 + jit(), y1 + jit());
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const x = x1 + (x2 - x1) * t + jit();
+    const y = y1 + (y2 - y1) * t + jit();
+    ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function jit() { return (Math.random() - 0.5) * 1.2; }
+
+// 手绘圆
+function sketchCircle(x, y, r, fill) {
+  ctx.beginPath();
+  for (let i = 0; i <= 64; i++) {
+    const a = (i / 64) * Math.PI * 2;
+    const rr = r + (Math.random() - 0.5) * 1.2;
+    const px = x + Math.cos(a) * rr;
+    const py = y + Math.sin(a) * rr;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  if (fill) { ctx.fill(); ctx.stroke(); }
+  else ctx.stroke();
+}
+
+// 手绘椭圆
+function sketchEllipse(x, y, rx, ry, fill) {
+  ctx.beginPath();
+  for (let i = 0; i <= 64; i++) {
+    const a = (i / 64) * Math.PI * 2;
+    const px = x + Math.cos(a) * (rx + (Math.random()-0.5)*0.8);
+    const py = y + Math.sin(a) * (ry + (Math.random()-0.5)*0.8);
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  if (fill) { ctx.fill(); ctx.stroke(); }
+  else ctx.stroke();
+}
+
+// 手绘弧线
+function sketchArc(x, y, r, startA, endA) {
+  ctx.beginPath();
+  const steps = 24;
+  for (let i = 0; i <= steps; i++) {
+    const a = startA + (endA - startA) * (i / steps);
+    const rr = r + (Math.random()-0.5)*0.8;
+    const px = x + Math.cos(a) * rr + jit() * 0.3;
+    const py = y + Math.sin(a) * rr + jit() * 0.3;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+}
+
+// ============ 颜色 ============
+const INK = '#3a3a3a';
+const INK_LIGHT = '#8a8a8a';
+const PAPER = '#f5f1e8';
+const PAPER_LINES = '#d8d4cc';
+const GREEN_LIGHT = 'rgba(120, 180, 100, 0.15)';
+const GREEN_MED = 'rgba(100, 160, 80, 0.25)';
+const BLUE_LIGHT = 'rgba(100, 170, 220, 0.2)';
+const BROWN_LIGHT = 'rgba(180, 140, 90, 0.15)';
+const PEACH = '#ffe8d0';
+const BLUSH = 'rgba(240, 140, 140, 0.35)';
+const RED_BERRY = 'rgba(220, 70, 80, 0.6)';
+const WOLF_GRAY = 'rgba(120, 120, 130, 0.2)';
+
+// ============ 背景 ============
+function drawBackground() {
+  // 纸张底色
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  // 纸张纹理（细微噪点）
+  for (let i = 0; i < 3000; i++) {
+    const x = Math.random() * cv.width;
+    const y = Math.random() * cv.height;
+    ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.02})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+
+  // 浅色网格（像方格纸）
+  ctx.strokeStyle = PAPER_LINES;
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x < cv.width; x += 32) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cv.height); ctx.stroke();
+  }
+  for (let y = 0; y < cv.height; y += 32) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cv.width, y); ctx.stroke();
+  }
+}
+
+// ============ 地形区域（淡淡的色块标注） ============
+function drawTerrainZones() {
+  // 草地区域（左下，淡绿）
+  ctx.fillStyle = GREEN_LIGHT;
+  ctx.beginPath();
+  ctx.moveTo(0, 250);
+  ctx.quadraticCurveTo(200, 220, 380, 280);
+  ctx.quadraticCurveTo(450, 350, 420, 500);
+  ctx.quadraticCurveTo(350, 650, 200, 700);
+  ctx.lineTo(0, 720);
+  ctx.closePath();
+  ctx.fill();
+
+  // 森林区域（中部，稍深绿）
+  ctx.fillStyle = GREEN_MED;
+  ctx.beginPath();
+  ctx.moveTo(300, 100);
+  ctx.quadraticCurveTo(500, 80, 580, 200);
+  ctx.quadraticCurveTo(600, 350, 500, 450);
+  ctx.quadraticCurveTo(380, 400, 300, 350);
+  ctx.quadraticCurveTo(250, 250, 300, 100);
+  ctx.closePath();
+  ctx.fill();
+
+  // 山地区域（右上，淡棕）
+  ctx.fillStyle = BROWN_LIGHT;
+  ctx.beginPath();
+  ctx.moveTo(600, 0);
+  ctx.lineTo(960, 0);
+  ctx.lineTo(960, 400);
+  ctx.quadraticCurveTo(850, 450, 700, 350);
+  ctx.quadraticCurveTo(580, 250, 600, 100);
+  ctx.closePath();
+  ctx.fill();
+
+  // 水域（一条弯曲的河 + 小湖）
+  ctx.fillStyle = BLUE_LIGHT;
+  // 河流
+  ctx.beginPath();
+  ctx.moveTo(650, 0);
+  ctx.quadraticCurveTo(630, 150, 660, 300);
+  ctx.quadraticCurveTo(680, 450, 640, 600);
+  ctx.quadraticCurveTo(620, 680, 640, 720);
+  ctx.lineTo(690, 720);
+  ctx.quadraticCurveTo(680, 680, 700, 600);
+  ctx.quadraticCurveTo(730, 450, 710, 300);
+  ctx.quadraticCurveTo(690, 150, 700, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // 小湖
+  ctx.beginPath();
+  ctx.ellipse(470, 180, 50, 30, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 区域标注文字（像手写的笔记）
+  ctx.fillStyle = INK_LIGHT;
+  ctx.font = 'italic 13px Georgia, serif';
+  ctx.fillText('~ 安全草地 ~', 80, 520);
+  ctx.fillText('~ 森林 ~', 380, 250);
+  ctx.fillText('~ 山地 ~', 780, 120);
+
+  // 河流标注
+  ctx.save();
+  ctx.translate(720, 350);
+  ctx.rotate(Math.PI / 2);
+  ctx.fillText('~ 河流 ~', 0, 0);
+  ctx.restore();
+}
+
+// ============ 树 ============
+function drawTree(x, y, size) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = 'rgba(100, 170, 80, 0.12)';
+
+  // 树干
+  sketchLine(x, y, x - 1, y + size * 1.5);
+  sketchLine(x + 4, y + 2, x + 3, y + size * 1.5);
+
+  // 树冠（几个重叠的不规则圆）
+  sketchCircle(x + 1, y - size * 0.3, size, true);
+  ctx.fillStyle = 'rgba(100, 170, 80, 0.08)';
+  sketchCircle(x - size * 0.5, y, size * 0.7, true);
+  sketchCircle(x + size * 0.6, y + 1, size * 0.65, true);
+}
+
+// ============ 小草 ============
+function drawGrass(x, y) {
+  ctx.strokeStyle = INK_LIGHT;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x - 3, y - 8, x - 2, y - 12); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 2, y); ctx.quadraticCurveTo(x + 4, y - 9, x + 6, y - 11); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 1, y); ctx.quadraticCurveTo(x + 1, y - 10, x + 1, y - 14); ctx.stroke();
+}
+
+// ============ 石头 ============
+function drawRock(x, y, size) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = 'rgba(160, 160, 160, 0.1)';
+
+  ctx.beginPath();
+  const pts = [];
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 - 0.3;
+    const r = size * (0.7 + Math.random() * 0.4);
+    pts.push([x + Math.cos(a) * r, y + Math.sin(a) * r * 0.6]);
+  }
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0] + jit(), pts[i][1] + jit());
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // 裂纹
+  ctx.strokeStyle = INK_LIGHT;
+  ctx.lineWidth = 0.8;
+  sketchLine(x - size * 0.2, y - size * 0.1, x + size * 0.1, y + size * 0.15);
+}
+
+// ============ 浆果丛 ============
+function drawBerryBush(x, y) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.3;
+  ctx.fillStyle = 'rgba(100, 160, 80, 0.12)';
+
+  // 灌木轮廓
+  sketchEllipse(x, y, 14, 10, true);
+
+  // 浆果
+  ctx.fillStyle = RED_BERRY;
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1;
+  sketchCircle(x - 5, y - 3, 3, true);
+  sketchCircle(x + 4, y - 1, 3, true);
+  sketchCircle(x - 1, y + 3, 2.5, true);
+}
+
+// ============ 篝火 ============
+function drawCampfire(x, y) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.3;
+
+  // 木柴（交叉的两根线）
+  sketchLine(x - 10, y + 4, x + 10, y + 2);
+  sketchLine(x - 8, y + 1, x + 8, y + 5);
+
+  // 火焰轮廓
+  ctx.fillStyle = 'rgba(240, 160, 50, 0.15)';
+  ctx.beginPath();
+  ctx.moveTo(x - 6 + jit(), y + 2);
+  ctx.quadraticCurveTo(x - 8 + jit(), y - 10, x + jit(), y - 18 + jit());
+  ctx.quadraticCurveTo(x + 8 + jit(), y - 10, x + 6 + jit(), y + 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // 内焰
+  ctx.beginPath();
+  ctx.moveTo(x - 3, y + 1);
+  ctx.quadraticCurveTo(x - 2, y - 6, x, y - 10);
+  ctx.quadraticCurveTo(x + 2, y - 6, x + 3, y + 1);
+  ctx.closePath();
+  ctx.stroke();
+}
+
+// ============ 庇护所 ============
+function drawShelter(x, y) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = 'rgba(180, 140, 80, 0.1)';
+
+  // 房子
+  ctx.beginPath();
+  ctx.moveTo(x - 20 + jit(), y + 15);
+  ctx.lineTo(x - 20 + jit(), y - 5 + jit());
+  ctx.lineTo(x + jit(), y - 22 + jit());
+  ctx.lineTo(x + 20 + jit(), y - 5 + jit());
+  ctx.lineTo(x + 20 + jit(), y + 15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // 门
+  sketchLine(x - 4, y + 15, x - 4, y + 2);
+  sketchLine(x + 4, y + 15, x + 4, y + 2);
+  sketchLine(x - 4, y + 2, x + 4, y + 2);
+
+  // 门把
+  ctx.fillStyle = INK;
+  ctx.beginPath(); ctx.arc(x + 2, y + 9, 1.2, 0, Math.PI * 2); ctx.fill();
+}
+
+// ============ AI 角色 ============
+function drawAICharacter(x, y, expression, showBubble, bubbleText) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.8;
+
+  // 影子
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  ctx.beginPath(); ctx.ellipse(x, y + 22, 14, 4, 0, 0, Math.PI * 2); ctx.fill();
+
+  // 身体（小小的）
+  ctx.fillStyle = PEACH;
+  sketchEllipse(x, y + 14, 7, 5, true);
+
+  // 脸（大大的圆）
+  ctx.fillStyle = PEACH;
+  sketchCircle(x, y, 16, true);
+
+  // 腮红
+  ctx.fillStyle = BLUSH;
+  ctx.beginPath(); ctx.arc(x - 11, y + 3, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 11, y + 3, 3.5, 0, Math.PI * 2); ctx.fill();
+
+  // 表情
+  ctx.strokeStyle = INK;
+  ctx.fillStyle = INK;
+
+  switch (expression) {
+    case 'normal':
+      // ·_·
+      ctx.beginPath(); ctx.arc(x - 5, y - 2, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 5, y - 2, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 1.5;
+      sketchLine(x - 4, y + 6, x + 4, y + 6);
+      break;
+
+    case 'scared':
+      // °△°
+      ctx.lineWidth = 1.5;
+      sketchCircle(x - 5, y - 2, 3.5, false);
+      sketchCircle(x + 5, y - 2, 3.5, false);
+      // 小瞳孔
+      ctx.beginPath(); ctx.arc(x - 5, y - 2, 1.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 5, y - 2, 1.2, 0, Math.PI * 2); ctx.fill();
+      // 三角嘴
+      ctx.beginPath();
+      ctx.moveTo(x - 4 + jit(), y + 5);
+      ctx.lineTo(x + 4 + jit(), y + 5);
+      ctx.lineTo(x + jit(), y + 10 + jit());
+      ctx.closePath();
+      ctx.stroke();
+      break;
+
+    case 'happy':
+      // ◠‿◠
+      ctx.lineWidth = 1.8;
+      sketchArc(x - 5, y - 1, 3.5, Math.PI, 0);
+      sketchArc(x + 5, y - 1, 3.5, Math.PI, 0);
+      // 笑嘴
+      ctx.lineWidth = 1.5;
+      sketchArc(x, y + 4, 5, 0.1, Math.PI - 0.1);
+      break;
+
+    case 'thinking':
+      // · ~ ·   + 一只眼微闭
+      ctx.beginPath(); ctx.arc(x - 5, y - 2, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 1.5;
+      sketchLine(x + 3, y - 2, x + 7, y - 2); // 闭眼是一条线
+      // 波浪嘴
+      ctx.beginPath();
+      ctx.moveTo(x - 4, y + 6);
+      ctx.quadraticCurveTo(x - 1, y + 3, x + 1, y + 6);
+      ctx.quadraticCurveTo(x + 3, y + 9, x + 5, y + 6);
+      ctx.stroke();
+      break;
+
+    case 'curious':
+      // · · + o嘴
+      ctx.beginPath(); ctx.arc(x - 5, y - 2, 2.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 5, y - 2, 2.2, 0, Math.PI * 2); ctx.fill();
+      // 高光
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(x - 4, y - 3, 0.9, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 6, y - 3, 0.9, 0, Math.PI * 2); ctx.fill();
+      // o嘴
+      ctx.fillStyle = INK;
+      ctx.lineWidth = 1.3;
+      sketchCircle(x, y + 6, 2.5, false);
+      break;
+
+    case 'determined':
+      // > < 嘴紧闭
+      ctx.lineWidth = 1.5;
+      // 左眼 >
+      sketchLine(x - 7, y - 4, x - 4, y - 1);
+      sketchLine(x - 4, y - 1, x - 7, y + 2);
+      // 右眼 <
+      sketchLine(x + 7, y - 4, x + 4, y - 1);
+      sketchLine(x + 4, y - 1, x + 7, y + 2);
+      // 紧闭嘴
+      sketchLine(x - 3, y + 7, x + 3, y + 7);
+      sketchLine(x - 3, y + 7, x - 4, y + 6);
+      break;
+  }
+
+  ctx.lineWidth = 1.5;
+
+  // 思考气泡
+  if (showBubble && bubbleText) {
+    ctx.strokeStyle = INK;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 1.2;
+
+    // 小圆
+    sketchCircle(x + 18, y - 14, 2, true);
+    sketchCircle(x + 24, y - 22, 3, true);
+
+    // 气泡
+    ctx.font = '12px Georgia, serif';
+    const tw = ctx.measureText(bubbleText).width;
+    const bw = tw + 24;
+    const bx = x + 38 + bw/2, by = y - 36;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.beginPath();
+    for (let i = 0; i <= 64; i++) {
+      const a = (i / 64) * Math.PI * 2;
+      const px = bx + Math.cos(a) * (bw/2 + (Math.random()-0.5)*1);
+      const py = by + Math.sin(a) * (14 + (Math.random()-0.5)*1);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.fillStyle = INK;
+    ctx.font = '12px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(bubbleText, bx, by + 4);
+    ctx.textAlign = 'left';
+  }
+}
+
+// ============ 兔子 ============
+function drawRabbit(x, y) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.3;
+  ctx.fillStyle = 'rgba(220, 200, 170, 0.15)';
+
+  // 身体
+  sketchEllipse(x, y + 3, 6, 4.5, true);
+  // 头
+  sketchCircle(x, y - 4, 5, true);
+  // 耳朵
+  ctx.fillStyle = 'rgba(240, 180, 180, 0.15)';
+  sketchEllipse(x - 3, y - 14, 2, 5, true);
+  sketchEllipse(x + 3, y - 14, 2, 5, true);
+  // 眼
+  ctx.fillStyle = INK;
+  ctx.beginPath(); ctx.arc(x - 2, y - 5, 1, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 2, y - 5, 1, 0, Math.PI * 2); ctx.fill();
+}
+
+// ============ 狼 ============
+function drawWolf(x, y) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = WOLF_GRAY;
+
+  // 身体
+  sketchEllipse(x, y + 3, 10, 6, true);
+  // 头
+  sketchCircle(x, y - 6, 7, true);
+  // 尖耳朵
+  ctx.beginPath();
+  ctx.moveTo(x - 6 + jit(), y - 8);
+  ctx.lineTo(x - 3 + jit(), y - 18 + jit());
+  ctx.lineTo(x + jit(), y - 8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x + jit(), y - 8);
+  ctx.lineTo(x + 3 + jit(), y - 18 + jit());
+  ctx.lineTo(x + 6 + jit(), y - 8);
+  ctx.stroke();
+
+  // 眼（凶狠的V形）
+  ctx.lineWidth = 1.5;
+  sketchLine(x - 5, y - 8, x - 2, y - 5);
+  sketchLine(x + 5, y - 8, x + 2, y - 5);
+  // 瞳孔
+  ctx.fillStyle = INK;
+  ctx.beginPath(); ctx.arc(x - 3, y - 6, 1.3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 3, y - 6, 1.3, 0, Math.PI * 2); ctx.fill();
+  // 嘴
+  ctx.lineWidth = 1;
+  sketchLine(x - 3, y - 1, x, y);
+  sketchLine(x, y, x + 3, y - 1);
+}
+
+// ============ 鹿 ============
+function drawDeer(x, y) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.3;
+  ctx.fillStyle = 'rgba(200, 160, 110, 0.12)';
+
+  sketchEllipse(x, y + 2, 8, 5, true);
+  sketchCircle(x, y - 6, 5.5, true);
+
+  // 鹿角
+  ctx.lineWidth = 1.5;
+  sketchLine(x - 3, y - 10, x - 6, y - 20);
+  sketchLine(x - 6, y - 17, x - 9, y - 15);
+  sketchLine(x + 3, y - 10, x + 6, y - 20);
+  sketchLine(x + 6, y - 17, x + 9, y - 15);
+
+  ctx.fillStyle = INK;
+  ctx.beginPath(); ctx.arc(x - 2, y - 7, 1.2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 2, y - 7, 1.2, 0, Math.PI * 2); ctx.fill();
+}
+
+// ============ 鱼 ============
+function drawFish(x, y) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.2;
+  ctx.fillStyle = 'rgba(100, 170, 220, 0.1)';
+
+  sketchEllipse(x, y, 7, 3, true);
+  // 尾巴
+  ctx.beginPath();
+  ctx.moveTo(x + 6 + jit(), y);
+  ctx.lineTo(x + 11 + jit(), y - 4 + jit());
+  ctx.lineTo(x + 11 + jit(), y + 4 + jit());
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.fillStyle = INK;
+  ctx.beginPath(); ctx.arc(x - 2, y - 0.5, 0.8, 0, Math.PI * 2); ctx.fill();
+}
+
+// ============ 渲染 ============
+function render() {
+  drawBackground();
+  drawTerrainZones();
+
+  ctx.strokeStyle = INK;
+
+  // 草地上的草
+  drawGrass(120, 480);
+  drawGrass(200, 550);
+  drawGrass(80, 600);
+  drawGrass(300, 620);
+  drawGrass(160, 400);
+
+  // 森林里的树
+  drawTree(350, 200, 12);
+  drawTree(420, 160, 14);
+  drawTree(480, 280, 11);
+  drawTree(380, 320, 13);
+  drawTree(320, 280, 10);
+  drawTree(450, 350, 12);
+  drawTree(520, 220, 11);
+
+  // 山地的石头
+  drawRock(750, 180, 14);
+  drawRock(820, 250, 10);
+  drawRock(700, 300, 12);
+  drawRock(870, 160, 8);
+  drawRock(780, 350, 11);
+
+  // 铁矿标注
+  ctx.fillStyle = 'rgba(200, 170, 80, 0.3)';
+  ctx.beginPath(); ctx.arc(822, 248, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(818, 253, 3, 0, Math.PI * 2); ctx.fill();
+
+  // 浆果丛
+  drawBerryBush(180, 450);
+  drawBerryBush(250, 380);
+  drawBerryBush(400, 380);
+
+  // 篝火
+  drawCampfire(260, 500);
+
+  // 庇护所
+  drawShelter(200, 490);
+
+  // 河里的鱼
+  drawFish(660, 300);
+  drawFish(680, 450);
+
+  // 生物
+  drawRabbit(150, 430);
+  drawRabbit(300, 560);
+  drawDeer(420, 420);
+  drawWolf(760, 400);
+  drawWolf(830, 320);
+
+  // AI 角色（在庇护所旁边）
+  drawAICharacter(270, 460, 'curious', true, '这里好像很安全...');
+
+  // ============ UI ============
+  // 天数
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.roundRect(cv.width - 130, 15, 115, 35, 8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = INK;
+  ctx.font = '15px Georgia, serif';
+  ctx.fillText('☀ 第 1 天', cv.width - 118, 38);
+
+  // 状态面板
+  const px = cv.width - 240, py = cv.height - 130;
+  ctx.fillStyle = 'rgba(255,255,255,0.88)';
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.roundRect(px, py, 225, 115, 8); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = INK;
+  ctx.font = 'bold 13px Georgia, serif';
+  ctx.fillText('AI 状态', px + 12, py + 22);
+
+  ctx.font = '12px Georgia, serif';
+  ctx.fillText('生命', px + 12, py + 44);
+  ctx.strokeStyle = INK_LIGHT; ctx.lineWidth = 1;
+  ctx.strokeRect(px + 52, py + 34, 100, 12);
+  ctx.fillStyle = 'rgba(220, 80, 80, 0.4)';
+  ctx.fillRect(px + 53, py + 35, 78, 10);
+  ctx.fillStyle = INK;
+  ctx.fillText('80%', px + 160, py + 44);
+
+  ctx.fillText('饥饿', px + 12, py + 64);
+  ctx.strokeStyle = INK_LIGHT;
+  ctx.strokeRect(px + 52, py + 54, 100, 12);
+  ctx.fillStyle = 'rgba(100, 170, 80, 0.4)';
+  ctx.fillRect(px + 53, py + 55, 55, 10);
+  ctx.fillStyle = INK;
+  ctx.fillText('55%', px + 160, py + 64);
+
+  ctx.fillText('背包: 浆果×3  木头×2', px + 12, py + 84);
+
+  ctx.fillStyle = INK_LIGHT;
+  ctx.font = 'italic 11px Georgia, serif';
+  ctx.fillText('💭 "这片森林好像有吃的..."', px + 12, py + 104);
+
+  // 表情展示
+  ctx.fillStyle = 'rgba(255,255,255,0.88)';
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.roundRect(15, 15, 300, 60, 8); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = INK;
+  ctx.font = 'bold 12px Georgia, serif';
+  ctx.fillText('表情', 25, 38);
+
+  const exprList = ['normal', 'happy', 'scared', 'thinking', 'curious', 'determined'];
+  const exprLabels = ['平静', '开心', '害怕', '思考', '好奇', '坚定'];
+  exprList.forEach((expr, i) => {
+    const ex = 85 + i * 40, ey = 38;
+    drawAICharacter(ex, ey, expr, false);
+  });
+
+  ctx.font = '9px Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = INK_LIGHT;
+  exprLabels.forEach((label, i) => {
+    ctx.fillText(label, 85 + i * 40, 62);
+  });
+  ctx.textAlign = 'left';
+}
+
+render();
+</script>
+</body>
+</html>

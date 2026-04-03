@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 生存游戏 - 地图预览 v2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+  }
+  canvas {
+    border-radius: 12px;
+    box-shadow: 0 0 40px rgba(0,0,0,0.5);
+  }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="720"></canvas>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const TILE = 32;
+const COLS = 30;
+const ROWS = 22;
+
+// 伪随机
+let _seed = 42;
+function rand() { _seed = (_seed * 16807) % 2147483647; return (_seed - 1) / 2147483646; }
+function randInt(a, b) { return Math.floor(rand() * (b - a + 1)) + a; }
+function noise2d(x, y) {
+  let n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return n - Math.floor(n);
+}
+function smoothNoise(x, y, scale) {
+  const sx = x / scale, sy = y / scale;
+  const ix = Math.floor(sx), iy = Math.floor(sy);
+  const fx = sx - ix, fy = sy - iy;
+  const a = noise2d(ix, iy), b = noise2d(ix+1, iy);
+  const c = noise2d(ix, iy+1), d = noise2d(ix+1, iy+1);
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  return a*(1-u)*(1-v) + b*u*(1-v) + c*(1-u)*v + d*u*v;
+}
+
+// 配色
+const PAL = {
+  grass1: '#b5d6a7', grass2: '#a3c997', grass3: '#c2ddb5',
+  forest1: '#6a9e68', forest2: '#5a8e58', forest3: '#7aae78',
+  mount1: '#c4b8a8', mount2: '#b5a898', mount3: '#d0c8b8',
+  water1: '#82c8e0', water2: '#6eb8d4', water3: '#96d4ea',
+  sand1: '#e4d8c0', sand2: '#d8ccb4',
+  trunk: '#907858', canopy1: '#6aaa5a', canopy2: '#5a9a4a',
+  berry: '#e85878', bush: '#5a9a5a',
+  rock1: '#a8a8a8', rock2: '#888', rock3: '#c0c0c0',
+  iron: '#d4b070',
+  ai: '#ffe4c4', aiLine: '#d0a070', aiEye: '#444',
+  wolf: '#787888', wolfEye: '#e04040',
+  rabbit: '#d8c0a0', rabbitInner: '#eaa0a0',
+  deer: '#c8986a', deerBelly: '#e8d4bc',
+  fish: '#f0a858',
+  wood: '#a88060',
+  uiBg: 'rgba(30,30,50,0.82)', uiText: '#eee', uiDim: '#aab',
+};
+
+// 地形: 0草 1森林 2山 3水 4沙
+const map = [];
+const cx = 8, cy = 14; // 出生点
+
+for (let r = 0; r < ROWS; r++) {
+  map[r] = [];
+  for (let c = 0; c < COLS; c++) {
+    const dist = Math.sqrt((c - cx) ** 2 + (r - cy) ** 2);
+    const n1 = smoothNoise(c, r, 6);
+    const n2 = smoothNoise(c + 50, r + 50, 4);
+    const val = dist * 0.1 + n1 * 2 + n2;
+
+    if (dist < 4) map[r][c] = 0;
+    else if (val < 1.6) map[r][c] = 0;
+    else if (val < 2.3) map[r][c] = 1;
+    else map[r][c] = 2;
+  }
+}
+
+// 河流（从上往下蜿蜒）
+let rx = 21;
+for (let r = 0; r < ROWS; r++) {
+  const drift = Math.sin(r * 0.5) * 1.5;
+  const col = Math.round(rx + drift);
+  for (let dc = -1; dc <= 0; dc++) {
+    const cc = col + dc;
+    if (cc >= 0 && cc < COLS) {
+      map[r][cc] = 3;
+      // 沙地边
+      if (cc - 1 >= 0 && map[r][cc-1] !== 3) map[r][cc-1] = 4;
+      if (cc + 1 < COLS && map[r][cc+1] !== 3) map[r][cc+1] = 4;
+    }
+  }
+  if (r % 3 === 0) rx += (noise2d(r, 99) > 0.5 ? -1 : 0);
+}
+
+// 小湖
+const lx = 13, ly = 5;
+for (let dr = -2; dr <= 2; dr++) {
+  for (let dc = -2; dc <= 2; dc++) {
+    if (dr*dr + dc*dc <= 5) {
+      const mr = ly+dr, mc = lx+dc;
+      if (mr >= 0 && mr < ROWS && mc >= 0 && mc < COLS) {
+        map[mr][mc] = (dr*dr + dc*dc <= 3) ? 3 : 4;
+      }
+    }
+  }
+}
+
+// 绘制地形（柔和无棋盘格）
+function drawTerrain() {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const x = c * TILE, y = r * TILE;
+      const t = map[r][c];
+      const n = noise2d(c * 3.7, r * 3.7);
+
+      if (t === 0) {
+        ctx.fillStyle = n < 0.33 ? PAL.grass1 : n < 0.66 ? PAL.grass2 : PAL.grass3;
+      } else if (t === 1) {
+        ctx.fillStyle = n < 0.33 ? PAL.forest1 : n < 0.66 ? PAL.forest2 : PAL.forest3;
+      } else if (t === 2) {
+        ctx.fillStyle = n < 0.33 ? PAL.mount1 : n < 0.66 ? PAL.mount2 : PAL.mount3;
+      } else if (t === 3) {
+        ctx.fillStyle = n < 0.33 ? PAL.water1 : n < 0.66 ? PAL.water2 : PAL.water3;
+      } else {
+        ctx.fillStyle = n < 0.5 ? PAL.sand1 : PAL.sand2;
+      }
+      ctx.fillRect(x, y, TILE + 1, TILE + 1);
+    }
+  }
+
+  // 水面波纹
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = 1;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (map[r][c] !== 3) continue;
+      const x = c * TILE, y = r * TILE;
+      const off = noise2d(c, r) * 8;
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y + 10 + off);
+      ctx.quadraticCurveTo(x + 16, y + 6 + off, x + 26, y + 10 + off);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + 8, y + 22 + off * 0.5);
+      ctx.quadraticCurveTo(x + 16, y + 18 + off * 0.5, x + 24, y + 22 + off * 0.5);
+      ctx.stroke();
+    }
+  }
+}
+
+// 物件（大幅降低密度）
+const objs = [];
+_seed = 999;
+for (let r = 0; r < ROWS; r++) {
+  for (let c = 0; c < COLS; c++) {
+    const t = map[r][c];
+    const px = c * TILE + TILE / 2, py = r * TILE + TILE / 2;
+
+    if (t === 0) {
+      if (rand() < 0.03) objs.push({ t: 'berry', x: px, y: py });
+      if (rand() < 0.04) objs.push({ t: 'flower', x: px + randInt(-8,8), y: py + randInt(-8,8), c: randInt(0,2) });
+    }
+    if (t === 1) {
+      if (rand() < 0.35) objs.push({ t: 'tree', x: px + randInt(-4,4), y: py + randInt(-4,4), s: randInt(9,13) });
+      if (rand() < 0.04) objs.push({ t: 'berry', x: px + randInt(-6,6), y: py + randInt(-6,6) });
+      if (rand() < 0.02) objs.push({ t: 'mush', x: px + randInt(-8,8), y: py + randInt(-8,8) });
+    }
+    if (t === 2) {
+      if (rand() < 0.18) objs.push({ t: 'rock', x: px + randInt(-6,6), y: py + randInt(-6,6), s: randInt(7,11) });
+      if (rand() < 0.05) objs.push({ t: 'iron', x: px + randInt(-4,4), y: py + randInt(-4,4) });
+      if (rand() < 0.04) objs.push({ t: 'stree', x: px + randInt(-6,6), y: py + randInt(-6,6) });
+    }
+  }
+}
+objs.sort((a, b) => a.y - b.y);
+
+// 绘制函数
+function drawTree(x, y, s) {
+  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+  ctx.beginPath(); ctx.ellipse(x + 2, y + s + 1, s * 0.7, s * 0.25, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.trunk;
+  ctx.fillRect(x - 2, y + 2, 5, s - 2);
+  ctx.fillStyle = PAL.canopy1;
+  ctx.beginPath(); ctx.arc(x, y - 1, s * 0.85, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.canopy2;
+  ctx.beginPath(); ctx.arc(x - 2, y + 2, s * 0.55, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawSmallTree(x, y) {
+  ctx.fillStyle = PAL.trunk;
+  ctx.fillRect(x - 1, y + 1, 3, 7);
+  ctx.fillStyle = '#7a9a5a';
+  ctx.beginPath(); ctx.arc(x, y - 1, 5, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawRock(x, y, s) {
+  ctx.fillStyle = PAL.rock2;
+  ctx.beginPath();
+  ctx.moveTo(x - s, y + s * 0.3);
+  ctx.lineTo(x - s * 0.5, y - s * 0.6);
+  ctx.lineTo(x + s * 0.4, y - s * 0.7);
+  ctx.lineTo(x + s, y + s * 0.1);
+  ctx.lineTo(x + s * 0.4, y + s * 0.5);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = PAL.rock3;
+  ctx.beginPath();
+  ctx.moveTo(x - s * 0.2, y - s * 0.3);
+  ctx.lineTo(x + s * 0.3, y - s * 0.5);
+  ctx.lineTo(x + s * 0.5, y - s * 0.1);
+  ctx.lineTo(x, y + s * 0.1);
+  ctx.closePath(); ctx.fill();
+}
+
+function drawIron(x, y) {
+  drawRock(x, y, 7);
+  ctx.fillStyle = PAL.iron;
+  ctx.fillRect(x - 3, y - 2, 3, 3);
+  ctx.fillRect(x + 2, y + 1, 2, 2);
+}
+
+function drawBerry(x, y) {
+  ctx.fillStyle = PAL.bush;
+  ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x - 4, y + 2, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 4, y + 2, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.berry;
+  ctx.beginPath(); ctx.arc(x - 2, y - 2, 2.2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 3, y, 2.2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y + 3, 1.8, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawFlower(x, y, ci) {
+  const cols = ['#f0c848', '#e888c8', '#80b8f0'];
+  ctx.strokeStyle = '#7a9a5a'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 4); ctx.stroke();
+  ctx.fillStyle = cols[ci];
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    ctx.beginPath(); ctx.arc(x + Math.cos(a) * 2.2, y + Math.sin(a) * 2.2, 1.8, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(x, y, 1.2, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawMush(x, y) {
+  ctx.fillStyle = '#e8e0d0';
+  ctx.fillRect(x - 1.5, y, 3, 5);
+  ctx.fillStyle = '#d85848';
+  ctx.beginPath(); ctx.arc(x, y, 4, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(x - 1.5, y - 1.5, 1, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 1.5, y - 2, 0.8, 0, Math.PI * 2); ctx.fill();
+}
+
+// 生物
+function drawRabbit(x, y) {
+  ctx.fillStyle = PAL.rabbit;
+  ctx.beginPath(); ctx.ellipse(x, y + 2, 5, 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y - 4, 4.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.rabbit;
+  ctx.beginPath(); ctx.ellipse(x - 2.5, y - 12, 1.8, 4.5, -0.15, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + 2.5, y - 12, 1.8, 4.5, 0.15, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.rabbitInner;
+  ctx.beginPath(); ctx.ellipse(x - 2.5, y - 12, 0.9, 2.5, -0.15, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + 2.5, y - 12, 0.9, 2.5, 0.15, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.arc(x - 2, y - 5, 1.3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 2, y - 5, 1.3, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawWolf(x, y) {
+  ctx.fillStyle = PAL.wolf;
+  ctx.beginPath(); ctx.ellipse(x, y + 2, 8, 5.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y - 5, 6.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x - 5, y - 7); ctx.lineTo(x - 2.5, y - 16); ctx.lineTo(x, y - 7); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x, y - 7); ctx.lineTo(x + 2.5, y - 16); ctx.lineTo(x + 5, y - 7); ctx.fill();
+  ctx.fillStyle = PAL.wolfEye;
+  ctx.beginPath(); ctx.arc(x - 2.5, y - 6, 1.8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 2.5, y - 6, 1.8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#600';
+  ctx.beginPath(); ctx.arc(x - 2.5, y - 6, 0.9, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 2.5, y - 6, 0.9, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawDeer(x, y) {
+  ctx.fillStyle = PAL.deer;
+  ctx.beginPath(); ctx.ellipse(x, y + 2, 7, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y - 5, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.deerBelly;
+  ctx.beginPath(); ctx.ellipse(x, y + 4, 4.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 1.8;
+  ctx.beginPath(); ctx.moveTo(x-3,y-9); ctx.lineTo(x-5,y-16); ctx.lineTo(x-8,y-14);
+  ctx.moveTo(x-5,y-13); ctx.lineTo(x-2,y-16); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+3,y-9); ctx.lineTo(x+5,y-16); ctx.lineTo(x+8,y-14);
+  ctx.moveTo(x+5,y-13); ctx.lineTo(x+2,y-16); ctx.stroke();
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.arc(x - 2, y - 6, 1.3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 2, y - 6, 1.3, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawFish(x, y) {
+  ctx.fillStyle = PAL.fish;
+  ctx.beginPath(); ctx.ellipse(x, y, 5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x+5,y); ctx.lineTo(x+9,y-3); ctx.lineTo(x+9,y+3); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.arc(x - 2, y - 0.5, 0.8, 0, Math.PI * 2); ctx.fill();
+}
+
+// AI角色
+function drawAI(x, y, expr) {
+  ctx.fillStyle = 'rgba(0,0,0,0.1)';
+  ctx.beginPath(); ctx.ellipse(x, y + 14, 9, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = PAL.ai;
+  ctx.strokeStyle = PAL.aiLine;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255,140,140,0.25)';
+  ctx.beginPath(); ctx.arc(x - 8, y + 2, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 8, y + 2, 3, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = PAL.aiEye;
+  if (expr === 'curious') {
+    ctx.beginPath(); ctx.arc(x - 4, y - 2, 2.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 4, y - 2, 2.8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(x - 3, y - 3, 1.1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 5, y - 3, 1.1, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#c07050'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y + 5, 2.2, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+// 庇护所
+function drawShelter(x, y) {
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  ctx.beginPath(); ctx.ellipse(x, y + 12, 18, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.wood;
+  ctx.fillRect(x - 14, y - 8, 28, 18);
+  ctx.fillStyle = '#806040';
+  ctx.fillRect(x - 3, y, 7, 10);
+  ctx.fillStyle = '#906848';
+  ctx.beginPath(); ctx.moveTo(x - 18, y - 6); ctx.lineTo(x, y - 20); ctx.lineTo(x + 18, y - 6); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#7a5838'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x - 15, y - 8); ctx.lineTo(x + 15, y - 8); ctx.stroke();
+}
+
+// 篝火
+function drawFire(x, y) {
+  ctx.fillStyle = 'rgba(240,160,50,0.06)';
+  ctx.beginPath(); ctx.arc(x, y, 20, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.wood;
+  ctx.save(); ctx.translate(x, y + 3); ctx.rotate(-0.3); ctx.fillRect(-7, -1.5, 14, 3); ctx.restore();
+  ctx.save(); ctx.translate(x, y + 3); ctx.rotate(0.3); ctx.fillRect(-7, -1.5, 14, 3); ctx.restore();
+  ctx.fillStyle = '#e87030';
+  ctx.beginPath(); ctx.moveTo(x - 4, y + 1); ctx.quadraticCurveTo(x - 2, y - 9, x, y - 12);
+  ctx.quadraticCurveTo(x + 2, y - 9, x + 4, y + 1); ctx.fill();
+  ctx.fillStyle = '#f0c040';
+  ctx.beginPath(); ctx.moveTo(x - 2, y + 1); ctx.quadraticCurveTo(x, y - 5, x + 0.5, y - 7);
+  ctx.quadraticCurveTo(x + 1, y - 5, x + 2, y + 1); ctx.fill();
+}
+
+// 思考气泡
+function drawBubble(x, y, text) {
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x + 14, y - 10, 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x + 18, y - 16, 3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  const bw = ctx.measureText(text).width + 16;
+  const bx = x + 28, by = y - 28;
+  ctx.beginPath(); ctx.roundRect(bx - bw/2, by - 12, bw, 24, 10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#666';
+  ctx.font = '11px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, bx, by + 3);
+  ctx.textAlign = 'left';
+}
+
+// === 主渲染 ===
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  drawTerrain();
+
+  // 建筑
+  drawShelter(8 * TILE + 16, 13 * TILE);
+  drawFire(10 * TILE, 13 * TILE + 14);
+
+  // 物件
+  for (const o of objs) {
+    switch (o.t) {
+      case 'tree': drawTree(o.x, o.y, o.s); break;
+      case 'stree': drawSmallTree(o.x, o.y); break;
+      case 'rock': drawRock(o.x, o.y, o.s); break;
+      case 'iron': drawIron(o.x, o.y); break;
+      case 'berry': drawBerry(o.x, o.y); break;
+      case 'flower': drawFlower(o.x, o.y, o.c); break;
+      case 'mush': drawMush(o.x, o.y); break;
+    }
+  }
+
+  // 生物
+  drawRabbit(7 * TILE, 12 * TILE);
+  drawRabbit(5 * TILE, 16 * TILE);
+  drawDeer(12 * TILE, 11 * TILE);
+  drawDeer(16 * TILE, 17 * TILE);
+  drawWolf(25 * TILE, 8 * TILE);
+  drawWolf(20 * TILE, 16 * TILE);
+  drawFish(13 * TILE, 5 * TILE + 10);
+  drawFish(21 * TILE + 10, 11 * TILE);
+
+  // AI
+  drawAI(8 * TILE + 16, 14 * TILE + 16, 'curious');
+  ctx.font = '11px -apple-system, sans-serif';
+  drawBubble(8 * TILE + 16, 14 * TILE + 16, '这里好像很安全...');
+
+  // UI: 表情展示（顶部）
+  ctx.fillStyle = PAL.uiBg;
+  ctx.beginPath(); ctx.roundRect(10, 10, 240, 50, 8); ctx.fill();
+  ctx.fillStyle = PAL.uiText;
+  ctx.font = 'bold 12px -apple-system, sans-serif';
+  ctx.fillText('AI 表情', 20, 32);
+
+  const exprs = ['curious'];
+  // 画5个迷你表情
+  const miniExprs = [
+    { label: '平静', draw: (x,y) => { ctx.fillStyle='#444'; ctx.fillRect(x-3,y-2,2,2); ctx.fillRect(x+1,y-2,2,2); ctx.strokeStyle='#c07050'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x-2,y+3); ctx.lineTo(x+2,y+3); ctx.stroke(); }},
+    { label: '开心', draw: (x,y) => { ctx.strokeStyle='#444'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(x-2,y-1,2,Math.PI,0); ctx.stroke(); ctx.beginPath(); ctx.arc(x+2,y-1,2,Math.PI,0); ctx.stroke(); ctx.strokeStyle='#c07050'; ctx.beginPath(); ctx.arc(x,y+2,3,0,Math.PI); ctx.stroke(); }},
+    { label: '害怕', draw: (x,y) => { ctx.fillStyle='#444'; ctx.beginPath(); ctx.arc(x-2,y-1,2.5,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(x+2,y-1,2.5,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x-1.5,y-2,1,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(x+2.5,y-2,1,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#c07050'; ctx.beginPath(); ctx.moveTo(x-2,y+3); ctx.lineTo(x+2,y+3); ctx.lineTo(x,y+6); ctx.closePath(); ctx.fill(); }},
+    { label: '思考', draw: (x,y) => { ctx.fillStyle='#444'; ctx.fillRect(x-3,y-2,2,2); ctx.beginPath(); ctx.arc(x+2,y-1,2,0,Math.PI*2); ctx.fill(); ctx.strokeStyle='#c07050'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x-2,y+3); ctx.quadraticCurveTo(x,y+1,x+2,y+3); ctx.stroke(); }},
+    { label: '好奇', draw: (x,y) => { ctx.fillStyle='#444'; ctx.beginPath(); ctx.arc(x-2,y-1,2.2,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(x+2,y-1,2.2,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x-1.5,y-2,0.8,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(x+2.5,y-2,0.8,0,Math.PI*2); ctx.fill(); ctx.strokeStyle='#c07050'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(x,y+4,1.8,0,Math.PI*2); ctx.stroke(); }},
+  ];
+
+  miniExprs.forEach((e, i) => {
+    const mx = 90 + i * 38, my = 28;
+    // 画小圆脸
+    ctx.fillStyle = PAL.ai; ctx.strokeStyle = PAL.aiLine; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(mx, my, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,140,140,0.2)';
+    ctx.beginPath(); ctx.arc(mx - 5, my + 1.5, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx + 5, my + 1.5, 2, 0, Math.PI * 2); ctx.fill();
+    e.draw(mx, my);
+    ctx.fillStyle = PAL.uiDim;
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(e.label, mx, my + 18);
+  });
+  ctx.textAlign = 'left';
+
+  // UI: 状态面板（右下）
+  ctx.fillStyle = PAL.uiBg;
+  ctx.beginPath(); ctx.roundRect(canvas.width - 230, canvas.height - 110, 220, 100, 8); ctx.fill();
+
+  ctx.fillStyle = PAL.uiText;
+  ctx.font = 'bold 12px -apple-system, sans-serif';
+  ctx.fillText('AI 状态', canvas.width - 218, canvas.height - 88);
+
+  ctx.font = '11px -apple-system, sans-serif';
+  // 生命条
+  ctx.fillText('生命', canvas.width - 218, canvas.height - 70);
+  ctx.fillStyle = '#444'; ctx.fillRect(canvas.width - 178, canvas.height - 78, 100, 10);
+  ctx.fillStyle = '#e85858'; ctx.fillRect(canvas.width - 178, canvas.height - 78, 80, 10);
+  ctx.fillStyle = PAL.uiText; ctx.fillText('80%', canvas.width - 68, canvas.height - 70);
+
+  // 饥饿条
+  ctx.fillText('饥饿', canvas.width - 218, canvas.height - 52);
+  ctx.fillStyle = '#444'; ctx.fillRect(canvas.width - 178, canvas.height - 60, 100, 10);
+  ctx.fillStyle = '#6aaa5a'; ctx.fillRect(canvas.width - 178, canvas.height - 60, 55, 10);
+  ctx.fillStyle = PAL.uiText; ctx.fillText('55%', canvas.width - 68, canvas.height - 52);
+
+  // 背包
+  ctx.fillText('背包: 浆果x3  木头x2', canvas.width - 218, canvas.height - 34);
+
+  // 内心想法
+  ctx.fillStyle = '#7ec8e3';
+  ctx.fillText('💭 这片森林好像有吃的...', canvas.width - 218, canvas.height - 18);
+
+  // 图例（左下）
+  ctx.fillStyle = PAL.uiBg;
+  ctx.beginPath(); ctx.roundRect(10, canvas.height - 80, 200, 70, 8); ctx.fill();
+
+  ctx.fillStyle = PAL.uiText;
+  ctx.font = 'bold 11px -apple-system, sans-serif';
+  ctx.fillText('图例', 20, canvas.height - 62);
+
+  ctx.font = '10px -apple-system, sans-serif';
+  const legs = [
+    [PAL.grass1, '草地'], [PAL.forest1, '森林'], [PAL.mount1, '山地'],
+    [PAL.water1, '水域'], [PAL.sand1, '沙地'],
+  ];
+  legs.forEach((l, i) => {
+    const lx = 20 + (i % 3) * 65, ly = canvas.height - 45 + Math.floor(i / 3) * 18;
+    ctx.fillStyle = l[0];
+    ctx.beginPath(); ctx.roundRect(lx, ly - 7, 10, 10, 2); ctx.fill();
+    ctx.fillStyle = PAL.uiDim;
+    ctx.fillText(l[1], lx + 14, ly + 1);
+  });
+
+  // 天数
+  ctx.fillStyle = PAL.uiBg;
+  ctx.beginPath(); ctx.roundRect(canvas.width - 120, 10, 110, 36, 8); ctx.fill();
+  ctx.fillStyle = PAL.uiText;
+  ctx.font = 'bold 14px -apple-system, sans-serif';
+  ctx.fillText('☀️ 第 1 天', canvas.width - 108, 34);
+}
+
+render();
+</script>
+</body>
+</html>
