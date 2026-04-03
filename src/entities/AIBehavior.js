@@ -263,7 +263,30 @@ export class AIBehavior {
       }
 
       case 'goto': {
-        if (target === 'shelter' && ai.shelterPos) {
+        // 资源类型 → 转为 collect
+        const resTypes = ['berry','wood','stone','grass','herb','clay','浆果','木头','石头','草','止血草','粘土'];
+        if (resTypes.includes(target)) {
+          logger.info('决策', `goto ${target} → 转为 collect ${target}`);
+          const typeMap = {
+            'berry':'berry','浆果':'berry','wood':'wood','木头':'wood',
+            'stone':'stone','石头':'stone','grass':'grass','草':'grass',
+            'herb':'herb','止血草':'herb','clay':'clay','粘土':'clay',
+          };
+          const resType = typeMap[target] || target;
+          const res = this._findNearestResource(resType);
+          if (res) {
+            this._goCollect(res.obj);
+          } else {
+            const remembered = this.memory ? this.memory.findRememberedResource(resType, ai.x, ai.y) : null;
+            if (remembered) {
+              this.action = ACTION.GOTO;
+              this.targetX = remembered.x;
+              this.targetY = remembered.y;
+            } else {
+              this._exploreUnknown();
+            }
+          }
+        } else if (target === 'shelter' && ai.shelterPos) {
           this.action = ACTION.GOTO;
           this.targetX = ai.shelterPos.x;
           this.targetY = ai.shelterPos.y;

@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.4.3';
+export const VERSION = 'v0.4.4';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
