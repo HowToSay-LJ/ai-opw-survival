@@ -298,9 +298,9 @@ export class AIBehavior {
 
         const resType = RESOURCE_TYPES[ct.resourceType];
         const collectTime = resType ? resType.collectTime : 2;
-        const hasAxe = ai.inventory.find(i => i.name === '石斧');
-        const axeBonus = hasAxe && (ct.resourceType === 'wood' || ct.resourceType === 'stone') ? 0.5 : 1;
-        const actualTime = collectTime * axeBonus;
+        const axeItem = ai.inventory.find(i => i.name === '石斧' && i.durability > 0);
+        const useAxe = axeItem && (ct.resourceType === 'wood' || ct.resourceType === 'stone');
+        const actualTime = collectTime * (useAxe ? 0.5 : 1);
 
         // 暴露采集进度给渲染层
         const pct = Math.min(100, Math.round(this.collectProgress / actualTime * 100));
@@ -310,6 +310,15 @@ export class AIBehavior {
           this.gs.ai.collectingInfo = null;
           if (!ct.depleted) {
             ct.depleted = true;
+            // 石斧耐久消耗
+            if (useAxe && axeItem) {
+              axeItem.durability--;
+              if (axeItem.durability <= 0) {
+                const idx = ai.inventory.indexOf(axeItem);
+                if (idx >= 0) ai.inventory.splice(idx, 1);
+                this._think('石斧坏了！');
+              }
+            }
             const res = resType || { name: '资源', type: 'material' };
             const item = {
               type: res.type,

@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.3.1';
+export const VERSION = 'v0.3.2';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -31,11 +31,7 @@ const gs = new GameState();
 gs.ai.x = map.spawnX;
 gs.ai.y = map.spawnY;
 gs.ai.personality = 'reckless'; // 测试用，后续改为玩家选择
-gs.ai.shelterPos = { x: map.spawnX - 40, y: map.spawnY + 10 };
-gs.ai.shelterType = 'basic';
-gs.ai.shelterDaysLeft = 3;
-gs.ai.campfirePos = { x: map.spawnX + 40, y: map.spawnY + 20 };
-gs.ai.campfireFuel = 2;
+// 从零开始：无庇护所、无篝火、无装备
 gs.startDay();
 
 // 夜晚UI
@@ -104,12 +100,11 @@ const rocks = [
 ];
 // ===== 可采集资源（统一格式：{ x, y, resourceType, depleted }） =====
 const resources = [
-  // 浆果（安全区+近区）
-  { x:1450, y:1050, resourceType:'berry', depleted:false },
-  { x:1600, y:1100, resourceType:'berry', depleted:false },
-  { x:1750, y:1150, resourceType:'berry', depleted:false },
-  { x:1500, y:1300, resourceType:'berry', depleted:false },
-  { x:1650, y:1250, resourceType:'berry', depleted:false },
+  // 浆果（安全区少量，近区更多，逼迫外出）
+  { x:1550, y:1100, resourceType:'berry', depleted:false },
+  { x:1650, y:1180, resourceType:'berry', depleted:false },
+  { x:1500, y:1250, resourceType:'berry', depleted:false },
+  // 近区森林（需要走一段才到）
   { x:600, y:1000, resourceType:'berry', depleted:false },
   { x:700, y:1150, resourceType:'berry', depleted:false },
   { x:1350, y:550, resourceType:'berry', depleted:false },
@@ -575,8 +570,10 @@ function frame(timestamp) {
   mountainPeaks.forEach(p => { if (camera.isVisible(p.x, p.y, 80)) draws.push({ y: p.y + p.size * 0.6, fn: () => drawMountainPeak(ctx, p.x - cx, p.y - cy, p.size, p.id, p.snow) }); });
   // 崖壁
   cliffWalls.forEach(c => { if (camera.isVisible(c.x, c.y, 60)) draws.push({ y: c.y + 8, fn: () => drawCliffWall(ctx, c.x - cx, c.y - cy, c.w, c.id) }); });
-  if (camera.isVisible(shelterPos.x, shelterPos.y)) draws.push({ y: shelterPos.y, fn: () => drawShelter(ctx, shelterPos.x - cx, shelterPos.y - cy) });
-  if (camera.isVisible(campfirePos.x, campfirePos.y)) draws.push({ y: campfirePos.y, fn: () => drawCampfire(ctx, campfirePos.x - cx, campfirePos.y - cy) });
+  // 庇护所和篝火（从游戏状态获取，AI建造后才有）
+  const sp = gs.ai.shelterPos, cp = gs.ai.campfirePos;
+  if (sp && camera.isVisible(sp.x, sp.y)) draws.push({ y: sp.y, fn: () => drawShelter(ctx, sp.x - cx, sp.y - cy) });
+  if (cp && camera.isVisible(cp.x, cp.y)) draws.push({ y: cp.y, fn: () => drawCampfire(ctx, cp.x - cx, cp.y - cy) });
 
   // 动物
   rabbits.forEach(r => { if (!r.dead && camera.isVisible(r.x, r.y)) draws.push({ y: r.y, fn: () => { const hop = Math.abs(Math.sin(r.phase * 3)) * 5; drawRabbit(ctx, r.x - cx, r.y - cy, r.vx < 0 ? -1 : 1, hop); } }); });

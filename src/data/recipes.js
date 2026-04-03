@@ -48,7 +48,7 @@ export const RECIPES = [
 
 // 资源类型定义
 export const RESOURCE_TYPES = {
-  berry: { name: '浆果', type: 'food', collectTime: 1.5, hungerRestore: 20, shelfLife: 2 },
+  berry: { name: '浆果', type: 'food', collectTime: 1.5, hungerRestore: 15, shelfLife: 2 },
   wood: { name: '木头', type: 'material', collectTime: 3, infinite: true },
   stone: { name: '石头', type: 'material', collectTime: 4, infinite: false },
   grass: { name: '草', type: 'material', collectTime: 1, infinite: true },

@@ -77,12 +77,12 @@ export class GameState {
 
     this.dayTimeLeft -= dt;
 
-    // 饥饿消耗（每秒约0.8，90秒消耗约72点，需要进食补充）
-    this.ai.hunger = Math.max(0, this.ai.hunger - 0.8 * dt);
+    // 饥饿消耗（每秒1.2，90秒消耗108点，不吃东西一天就饿死）
+    this.ai.hunger = Math.max(0, this.ai.hunger - 1.2 * dt);
 
-    // 饥饿掉血
+    // 饥饿掉血（加速）
     if (this.ai.hunger <= 0) {
-      this.ai.hp = Math.max(0, this.ai.hp - 0.5 * dt);
+      this.ai.hp = Math.max(0, this.ai.hp - 1.0 * dt);
     }
 
     // 中毒掉血
@@ -124,11 +124,11 @@ export class GameState {
       settleText = '在庇护所里烤着火，休息得不错。(+5 生命)';
       this.ai.campfireFuel -= 1;
     } else if (hasShelter) {
-      hpChange = -5 - this.day; // 随天数寒冷加剧
-      settleText = `庇护所里没有篝火，有点冷。(${hpChange} 生命)`;
+      hpChange = -8 - this.day * 2;
+      settleText = `庇护所里没有篝火，冷得发抖。(${hpChange} 生命)`;
     } else {
-      hpChange = -10 - this.day * 2;
-      settleText = `露宿野外，冻得够呛。(${hpChange} 生命)`;
+      hpChange = -15 - this.day * 3;
+      settleText = `露宿野外，冻得快死了！(${hpChange} 生命)`;
     }
 
     this.ai.hp = Math.max(0, Math.min(this.ai.maxHp, this.ai.hp + hpChange));
