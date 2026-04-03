@@ -173,27 +173,24 @@ export class MapMemory {
     };
   }
 
-  // 生成 LLM 可用的记忆摘要
+  // 生成 LLM 可用的记忆摘要（使用绝对坐标）
   toPromptSummary(aiX, aiY) {
     const resources = Array.from(this.knownResources.values())
       .filter(r => !r.depleted)
+      .sort((a, b) => Math.hypot(a.x - aiX, a.y - aiY) - Math.hypot(b.x - aiX, b.y - aiY))
       .map(r => {
         const dist = Math.round(Math.hypot(r.x - aiX, r.y - aiY));
-        const dir = this._directionName(aiX, aiY, r.x, r.y);
-        return `${r.type} ${dir}方 约${dist}距离`;
+        return `${r.type}(${Math.round(r.x)},${Math.round(r.y)}) 距离${dist}`;
       });
 
     const dangers = Array.from(this.knownDangers.values())
-      .map(d => {
-        const dir = this._directionName(aiX, aiY, d.x, d.y);
-        return `${d.type} ${dir}方（第${d.lastSeenDay}天见过）`;
-      });
+      .map(d => `${d.type}(${Math.round(d.x)},${Math.round(d.y)}) 第${d.lastSeenDay}天见过`);
 
     const unexplored = this.findUnexploredDirection(aiX, aiY);
 
     return {
-      explored: `已探索${this.exploredPercent}%的地图`,
-      resources: resources.length > 0 ? resources.slice(0, 10) : ['记忆中没有可用资源'],
+      explored: `已探索${this.exploredPercent}%`,
+      resources: resources.length > 0 ? resources.slice(0, 8) : ['记忆中没有可用资源'],
       dangers: dangers.length > 0 ? dangers : ['暂无已知危险'],
       unexploredHint: unexplored !== null ? '有未探索的方向' : '周围都探索过了',
     };

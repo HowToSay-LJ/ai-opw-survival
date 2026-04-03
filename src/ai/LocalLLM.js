@@ -79,11 +79,14 @@ goto: 前往某处。target填 shelter/campfire 或方向(north/south/east/west/
 wander: 闲逛探索。target填 explore（去未探索区域）或 nearby（附近转转）
 wait: 原地等待观察
 
-【重要规则】
-- 饥饿值低于30%时必须优先解决食物问题
-- 有生肉时应该去篝火旁烤成烤肉再吃（烤肉回复40，生肉只回复10）
-- 没有庇护所会在夜间严重掉血
-- 天黑前要回庇护所附近
+【世界规则】
+- 夜间没有庇护所会持续掉血，天数越多伤害越高
+- 篝火每天消耗1个木头，没有木头就会熄灭
+- 简易庇护所3天后会损坏
+- 生肉直接吃回复10饥饿，在篝火旁烤成烤肉回复40饥饿
+- 浆果吃了回复15饥饿
+- 狼会主动攻击，兔子和鹿会逃跑
+- 采空的树木和草会重新长出来，浆果和石头采完就没了
 
 只返回JSON，格式：{"action":"动作","target":"目标","thought":"第一人称内心想法(20字内)"}`;
   }
@@ -94,7 +97,8 @@ wait: 原地等待观察
     const timeLeft = Math.round(gameState.dayTimeLeft);
 
     // 当前状态
-    let prompt = `生命${Math.round(ai.hp)}% `;
+    let prompt = `位置:(${Math.round(ai.x)},${Math.round(ai.y)}) `;
+    prompt += `生命${Math.round(ai.hp)}% `;
     prompt += `饥饿${Math.round(ai.hunger)}%`;
     if (ai.hunger < 30) prompt += '(很饿!)';
     if (ai.hunger < 15) prompt += '(快饿死了!!)';
@@ -143,11 +147,11 @@ wait: 原地等待观察
       }
     }
 
-    // 记忆摘要
+    // 记忆摘要（绝对坐标）
     if (memorySummary) {
-      prompt += `\n记忆: ${memorySummary.explored}\n`;
+      prompt += `\n地图记忆(${memorySummary.explored}):\n`;
       if (memorySummary.resources.length > 0 && memorySummary.resources[0] !== '记忆中没有可用资源') {
-        prompt += `已知资源: ${memorySummary.resources.slice(0, 5).join(', ')}\n`;
+        prompt += `已知资源: ${memorySummary.resources.slice(0, 6).join(', ')}\n`;
       }
       if (memorySummary.dangers.length > 0 && memorySummary.dangers[0] !== '暂无已知危险') {
         prompt += `已知危险: ${memorySummary.dangers.join(', ')}\n`;
