@@ -116,7 +116,7 @@ export class MapMemory {
       const entry = this.knownResources.get(key);
       if (entry && entry.depleted !== r.depleted) {
         entry.depleted = r.depleted;
-        logger.debug('记忆', `资源状态同步: ${r.resourceType} (${Math.round(r.x)},${Math.round(r.y)}) depleted=${r.depleted}`);
+        logger.info('记忆', `资源状态同步: ${r.resourceType} (${Math.round(r.x)},${Math.round(r.y)}) depleted=${r.depleted}`);
       }
     }
   }
