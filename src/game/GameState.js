@@ -232,4 +232,41 @@ export class GameState {
   // 获取饥饿/生命值的百分比显示
   get hpPercent() { return Math.round(this.ai.hp); }
   get hungerPercent() { return Math.round(this.ai.hunger); }
+
+  // 导出存档数据
+  exportSaveData(version) {
+    // 判断死因
+    let deathCause = '未知';
+    if (this.ai.hp <= 0) {
+      if (this.ai.hunger <= 0) deathCause = '饥饿';
+      else if (this.ai.poisoned) deathCause = '中毒';
+      else deathCause = '被攻击或冻死';
+    }
+
+    return {
+      version,
+      timestamp: new Date().toISOString(),
+      personality: this.ai.personality,
+      survivedDays: this.day - 1,
+      deathCause,
+      strategyBook: this.strategyBook,
+      history: this.history.map(h => ({
+        day: h.day,
+        events: h.events,
+        playerMessage: h.message,
+        strategyDiff: h.diff,
+      })),
+      // 当天未结算的事件也记录
+      lastDayEvents: this.todayEvents,
+      finalState: {
+        hp: Math.round(this.ai.hp),
+        hunger: Math.round(this.ai.hunger),
+        inventory: this.ai.inventory.map(i => ({ name: i.name, count: i.count })),
+        weapon: this.ai.equipment.weapon ? this.ai.equipment.weapon.name : null,
+        hasShelter: !!this.ai.shelterPos,
+        hasCampfire: !!this.ai.campfirePos,
+        position: { x: Math.round(this.ai.x), y: Math.round(this.ai.y) },
+      },
+    };
+  }
 }

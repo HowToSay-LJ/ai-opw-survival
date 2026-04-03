@@ -26,6 +26,10 @@ export class NightUI {
     this.active = false;
     this.onSubmit = null; // 回调：提交留言
     this.onNext = null;   // 回调：进入下一阶段
+
+    // 自动跳过计时器
+    this.autoTimer = 0;
+    this.autoDelay = 5; // 5秒后自动跳过
   }
 
   activate(onSubmit, onNext) {
@@ -96,6 +100,7 @@ export class NightUI {
     // 继续按钮
     this._drawButton(ctx, 'next', '继续', this.vw / 2 - 60, 350, 120, 40);
     ctx.textAlign = 'left';
+    this._tickAutoSkip(ctx, () => { if (this.onNext) this.onNext(); });
   }
 
   drawReport(day, reportText) {
@@ -125,6 +130,7 @@ export class NightUI {
     ctx.textAlign = 'center';
     this._drawButton(ctx, 'next', '继续', this.vw / 2 - 60, 370, 120, 40);
     ctx.textAlign = 'left';
+    this._tickAutoSkip(ctx, () => { if (this.onNext) this.onNext(); });
   }
 
   drawMessageInput(day) {
@@ -166,6 +172,14 @@ export class NightUI {
     const canSubmit = this.inputText.length > 0;
     this._drawButton(ctx, 'submit', '提交留言，天亮了', this.vw / 2 - 90, 400, 180, 42, canSubmit);
     ctx.textAlign = 'left';
+    // 自动跳过：提交默认留言
+    this._tickAutoSkip(ctx, () => {
+      if (this.onSubmit) {
+        const msg = this.inputText.length > 0 ? this.inputText : '继续加油';
+        this.inputText = '';
+        this.onSubmit(msg);
+      }
+    });
   }
 
   drawStrategyUpdate(day, diff) {
@@ -202,6 +216,7 @@ export class NightUI {
     ctx.textAlign = 'center';
     this._drawButton(ctx, 'next', '天亮了', this.vw / 2 - 60, Math.max(y + 20, 380), 120, 40);
     ctx.textAlign = 'left';
+    this._tickAutoSkip(ctx, () => { if (this.onNext) this.onNext(); });
   }
 
   drawDeath(day, history) {
@@ -237,9 +252,29 @@ export class NightUI {
     ctx.textAlign = 'center';
     this._drawButton(ctx, 'next', '再来一局', this.vw / 2 - 60, Math.max(ry + 30, 500), 120, 40);
     ctx.textAlign = 'left';
+    this._tickAutoSkip(ctx, () => { if (this.onNext) this.onNext(); });
   }
 
   // ===== 内部工具 =====
+
+  // 自动跳过：累加计时，画倒计时，到了就触发
+  _tickAutoSkip(ctx, action) {
+    this.autoTimer += 0.016;
+    const remaining = Math.ceil(this.autoDelay - this.autoTimer);
+    // 画倒计时
+    ctx.fillStyle = INK_L; ctx.font = '11px Georgia,serif'; ctx.textAlign = 'center';
+    ctx.fillText(`${remaining}秒后自动跳过`, this.vw / 2, this.vh - 100);
+    ctx.textAlign = 'left';
+    // 到时间了
+    if (this.autoTimer >= this.autoDelay) {
+      this.autoTimer = 0;
+      action();
+    }
+  }
+
+  _resetAutoTimer() {
+    this.autoTimer = 0;
+  }
 
   _drawNightBg(ctx, day) {
     // 深色夜晚背景

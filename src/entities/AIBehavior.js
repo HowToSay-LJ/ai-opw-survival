@@ -22,6 +22,8 @@ export class AIBehavior {
     this.crafting = craftingSystem;
     this.combat = combatSystem;
 
+    this.viewRange = 300; // AI视野范围（像素）
+
     this.action = ACTION.IDLE;
     this.targetX = 0;
     this.targetY = 0;
@@ -106,6 +108,11 @@ export class AIBehavior {
         this._goCollect(nearestBerry.obj);
         this._think('得找点吃的...');
         return;
+      } else {
+        // 视野内没有食物 → 紧急探索
+        this._wanderFar();
+        this._think('好饿...得去远处找吃的！');
+        return;
       }
     }
 
@@ -156,6 +163,12 @@ export class AIBehavior {
         this._goCollect(res.obj);
         const names = { wood:'木头', stone:'石头', grass:'草', berry:'浆果', herb:'止血草', clay:'粘土' };
         this._think('去采' + (names[needed] || '资源') + '...');
+        return;
+      } else {
+        // 视野内没有需要的资源 → 去探索
+        this._wanderFar();
+        const names = { wood:'木头', stone:'石头', grass:'草', berry:'浆果', herb:'止血草', clay:'粘土' };
+        this._think('需要' + (names[needed] || '资源') + '，去远处找找...');
         return;
       }
     }
@@ -480,7 +493,8 @@ export class AIBehavior {
 
   _findNearest(list, maxDist) {
     const ai = this.gs.ai;
-    let nearest = null, minDist = maxDist;
+    const viewRange = Math.min(maxDist, this.viewRange);
+    let nearest = null, minDist = viewRange;
     for (const obj of list) {
       if (obj.dead || obj.depleted) continue;
       const d = Math.hypot(obj.x - ai.x, obj.y - ai.y);
@@ -490,9 +504,9 @@ export class AIBehavior {
   }
 
   _findNearestResource(resourceType) {
-    const list = this.world.resources.filter(r => r.resourceType === resourceType && !r.depleted);
     const ai = this.gs.ai;
-    let nearest = null, minDist = Infinity;
+    const list = this.world.resources.filter(r => r.resourceType === resourceType && !r.depleted);
+    let nearest = null, minDist = this.viewRange;
     for (const r of list) {
       const d = Math.hypot(r.x - ai.x, r.y - ai.y);
       if (d < minDist) { minDist = d; nearest = { obj: r, dist: d }; }

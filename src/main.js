@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.3.2';
+export const VERSION = 'v0.3.5';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -424,6 +424,36 @@ function drawUI() {
   }
 }
 
+// ===== 存档系统 =====
+let gameSaved = false;
+
+function saveGameData() {
+  if (gameSaved) return;
+  gameSaved = true;
+
+  const data = gs.exportSaveData(VERSION);
+  const filename = `${VERSION}_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
+  const json = JSON.stringify(data, null, 2);
+
+  // 存到 localStorage
+  const saves = JSON.parse(localStorage.getItem('ai-survival-saves') || '[]');
+  saves.push({ filename, data });
+  // 最多保留50局
+  if (saves.length > 50) saves.shift();
+  localStorage.setItem('ai-survival-saves', JSON.stringify(saves));
+
+  // 自动下载文件到 saves/ 目录（浏览器会下载到默认下载目录）
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  console.log(`[存档] ${filename} 已保存（存活${data.survivedDays}天，死因：${data.deathCause}）`);
+}
+
 // ===== 夜晚流程控制 =====
 function enterNightFlow() {
   // 模拟AI汇报（Phase 4会换成Claude API生成）
@@ -441,6 +471,7 @@ function enterNightFlow() {
   nightUI.activate(
     // onSubmit：玩家提交留言
     (msg) => {
+      nightUI._resetAutoTimer();
       gs.submitMessage(msg);
       // 模拟策略更新（Phase 4会换成Claude API）
       const mockDiff = [
@@ -451,6 +482,7 @@ function enterNightFlow() {
     },
     // onNext：进入下一阶段
     () => {
+      nightUI._resetAutoTimer();
       const phase = gs.phase;
       if (phase === PHASE.NIGHT_SETTLE) {
         gs.enterReport(gs.nightReport || '今天没什么特别的...');
@@ -461,7 +493,6 @@ function enterNightFlow() {
         nightUI.deactivate();
         gs.dawn();
       } else if (phase === PHASE.DEATH) {
-        // 重新开始
         location.reload();
       }
     }
@@ -497,7 +528,9 @@ function frame(timestamp) {
     requestAnimationFrame(frame); return;
   }
   if (phase === PHASE.DEATH) {
+    saveGameData();
     nightUI.drawDeath(gs.day, gs.history);
+    if (!nightUI.active) nightUI.activate(null, () => location.reload());
     requestAnimationFrame(frame); return;
   }
 
@@ -511,6 +544,7 @@ function frame(timestamp) {
     requestAnimationFrame(frame); return;
   }
   if (gs.phase === PHASE.DEATH) {
+    saveGameData();
     nightUI.drawDeath(gs.day, gs.history);
     if (!nightUI.active) nightUI.activate(null, () => location.reload());
     requestAnimationFrame(frame); return;
