@@ -21,11 +21,29 @@ export class NightUI {
     this.buttons = {};
 
     // 键盘监听
-    this._onKeyDown = this._onKeyDown.bind(this);
     this._onClick = this._onClick.bind(this);
     this.active = false;
-    this.onSubmit = null; // 回调：提交留言
-    this.onNext = null;   // 回调：进入下一阶段
+    this.onSubmit = null;
+    this.onNext = null;
+
+    // 隐藏 input 元素（支持中文输入法）
+    this._hiddenInput = document.createElement('input');
+    this._hiddenInput.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+    this._hiddenInput.maxLength = this.maxChars;
+    document.body.appendChild(this._hiddenInput);
+    this._hiddenInput.addEventListener('input', () => {
+      this.inputText = this._hiddenInput.value.slice(0, this.maxChars);
+    });
+    this._hiddenInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && this.inputText.length > 0) {
+        if (this.onSubmit) {
+          const msg = this.inputText;
+          this.inputText = '';
+          this._hiddenInput.value = '';
+          this.onSubmit(msg);
+        }
+      }
+    });
 
     // 自动跳过计时器
     this.autoTimer = 0;
@@ -40,24 +58,20 @@ export class NightUI {
     this.onSubmit = onSubmit;
     this.onNext = onNext;
     this.inputText = '';
-    window.addEventListener('keydown', this._onKeyDown);
+    this._hiddenInput.value = '';
     this.canvas.addEventListener('click', this._onClick);
   }
 
   deactivate() {
     this.active = false;
-    window.removeEventListener('keydown', this._onKeyDown);
     this.canvas.removeEventListener('click', this._onClick);
+    this._hiddenInput.blur();
   }
 
-  _onKeyDown(e) {
-    if (e.key === 'Backspace') {
-      this.inputText = this.inputText.slice(0, -1);
-      e.preventDefault();
-    } else if (e.key === 'Enter' && this.inputText.length > 0) {
-      if (this.onSubmit) this.onSubmit(this.inputText);
-    } else if (e.key.length === 1 && this.inputText.length < this.maxChars) {
-      this.inputText += e.key;
+  // 聚焦隐藏输入框（在留言阶段每帧调用）
+  _focusInput() {
+    if (document.activeElement !== this._hiddenInput) {
+      this._hiddenInput.focus();
     }
   }
 
@@ -71,6 +85,7 @@ export class NightUI {
         if (name === 'submit' && this.inputText.length > 0 && this.onSubmit) {
           const msg = this.inputText;
           this.inputText = '';
+          this._hiddenInput.value = '';
           this.onSubmit(msg);
         } else if (name === 'next' && this.onNext) {
           this.onNext();
@@ -139,6 +154,7 @@ export class NightUI {
     const ctx = this.ctx;
     this.buttons = {};
     this.cursorBlink += 0.03;
+    this._focusInput(); // 保持隐藏输入框聚焦
     this._drawNightBg(ctx, day);
 
     ctx.fillStyle = INK;
@@ -179,6 +195,7 @@ export class NightUI {
       if (this.onSubmit) {
         const msg = this.inputText.length > 0 ? this.inputText : '继续加油';
         this.inputText = '';
+        this._hiddenInput.value = '';
         this.onSubmit(msg);
       }
     });
