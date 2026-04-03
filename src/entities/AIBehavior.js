@@ -499,7 +499,7 @@ export class AIBehavior {
           this.gs.ai.craftingInfo = null;
           this.craftTarget = null;
           this.craftProgress = 0;
-          this.lastTrigger = '合成失败，材料不足（需要先采集材料）';
+          this.lastTrigger = '合成失败，材料不足';
           this.action = ACTION.IDLE;
           break;
         }

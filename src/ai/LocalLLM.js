@@ -167,13 +167,7 @@ wait: 原地等待观察
       prompt += `${memorySummary.unexploredHint}\n`;
     }
 
-    // 可合成（明确告诉LLM能不能合成）
-    const craftable = gameState._craftingSystem ? gameState._craftingSystem.getAvailable() : [];
-    if (craftable.length > 0) {
-      prompt += `\n可以合成: ${craftable.map(r => r.name + '(' + r.id + ')').join('、')}\n`;
-    } else {
-      prompt += `\n当前没有足够材料合成任何东西\n`;
-    }
+    // 不告诉LLM能合成什么，让它自己根据背包和配方判断
 
     prompt += `\n白天剩余:${timeLeft}秒`;
     if (timeLeft < 20) prompt += '(马上天黑!)';
