@@ -30,6 +30,8 @@ export class NightUI {
     // 自动跳过计时器
     this.autoTimer = 0;
     this.autoDelay = 5; // 5秒后自动跳过
+    this.autoRounds = parseInt(localStorage.getItem('ai-survival-auto-rounds') || '0');
+    this.maxAutoRounds = 5; // 最多自动5局
   }
 
   activate(onSubmit, onNext) {
@@ -250,22 +252,27 @@ export class NightUI {
     }
 
     ctx.textAlign = 'center';
-    this._drawButton(ctx, 'next', '再来一局', this.vw / 2 - 60, Math.max(ry + 30, 500), 120, 40);
+    const label = this.autoRounds >= this.maxAutoRounds ? '再来一局' : '再来一局（自动）';
+    this._drawButton(ctx, 'next', label, this.vw / 2 - 60, Math.max(ry + 30, 500), 120, 40);
     ctx.textAlign = 'left';
-    this._tickAutoSkip(ctx, () => { if (this.onNext) this.onNext(); });
+    this._tickAutoSkip(ctx, () => {
+      // 自动重开时累加局数
+      this.autoRounds++;
+      localStorage.setItem('ai-survival-auto-rounds', String(this.autoRounds));
+      if (this.onNext) this.onNext();
+    });
   }
 
   // ===== 内部工具 =====
 
   // 自动跳过：累加计时，画倒计时，到了就触发
   _tickAutoSkip(ctx, action) {
+    if (this.autoRounds >= this.maxAutoRounds) return; // 超过局数限制，不再自动
     this.autoTimer += 0.016;
     const remaining = Math.ceil(this.autoDelay - this.autoTimer);
-    // 画倒计时
     ctx.fillStyle = INK_L; ctx.font = '11px Georgia,serif'; ctx.textAlign = 'center';
-    ctx.fillText(`${remaining}秒后自动跳过`, this.vw / 2, this.vh - 100);
+    ctx.fillText(`自动模式 (${this.autoRounds + 1}/${this.maxAutoRounds})  ${remaining}秒后跳过`, this.vw / 2, this.vh - 100);
     ctx.textAlign = 'left';
-    // 到时间了
     if (this.autoTimer >= this.autoDelay) {
       this.autoTimer = 0;
       action();

@@ -1,6 +1,7 @@
 // AI 基础自主行为（规则引擎，Phase 4 会被 LLM 决策替代）
 
 import { RESOURCE_TYPES } from '../data/recipes.js';
+import { logger } from '../systems/Logger.js';
 
 const ACTION = {
   IDLE: 'idle',
@@ -16,11 +17,12 @@ const ACTION = {
 };
 
 export class AIBehavior {
-  constructor(gameState, worldObjects, craftingSystem, combatSystem) {
+  constructor(gameState, worldObjects, craftingSystem, combatSystem, mapMemory) {
     this.gs = gameState;
     this.world = worldObjects;
     this.crafting = craftingSystem;
     this.combat = combatSystem;
+    this.memory = mapMemory;
 
     this.viewRange = 300; // AI视野范围（像素）
 
@@ -109,9 +111,19 @@ export class AIBehavior {
         this._think('得找点吃的...');
         return;
       } else {
-        // 视野内没有食物 → 紧急探索
-        this._wanderFar();
-        this._think('好饿...得去远处找吃的！');
+        // 视野内没有 → 查记忆中有没有没采空的
+        const remembered = this.memory ? this.memory.findRememberedResource('berry', ai.x, ai.y) : null;
+        if (remembered) {
+          this.action = ACTION.GOTO;
+          this.targetX = remembered.x;
+          this.targetY = remembered.y;
+          this._think('记得那边有浆果...');
+          logger.info('决策', '从记忆中找到浆果', { x: remembered.x, y: remembered.y });
+          return;
+        }
+        // 记忆里也没有 → 去未探索的方向
+        this._exploreUnknown();
+        this._think('好饿...得去没去过的地方找吃的！');
         return;
       }
     }
@@ -159,16 +171,25 @@ export class AIBehavior {
     const needed = this._whatDoINeed();
     if (needed && Math.random() > 0.2) {
       const res = this._findNearestResource(needed);
+      const names = { wood:'木头', stone:'石头', grass:'草', berry:'浆果', herb:'止血草', clay:'粘土' };
       if (res) {
         this._goCollect(res.obj);
-        const names = { wood:'木头', stone:'石头', grass:'草', berry:'浆果', herb:'止血草', clay:'粘土' };
         this._think('去采' + (names[needed] || '资源') + '...');
         return;
       } else {
-        // 视野内没有需要的资源 → 去探索
-        this._wanderFar();
-        const names = { wood:'木头', stone:'石头', grass:'草', berry:'浆果', herb:'止血草', clay:'粘土' };
-        this._think('需要' + (names[needed] || '资源') + '，去远处找找...');
+        // 视野内没有 → 查记忆
+        const remembered = this.memory ? this.memory.findRememberedResource(needed, ai.x, ai.y) : null;
+        if (remembered) {
+          this.action = ACTION.GOTO;
+          this.targetX = remembered.x;
+          this.targetY = remembered.y;
+          this._think('记得那边有' + (names[needed] || '资源') + '...');
+          logger.info('决策', '从记忆中找到资源', { type: needed, x: remembered.x, y: remembered.y });
+          return;
+        }
+        // 记忆里也没有 → 去未探索的方向
+        this._exploreUnknown();
+        this._think('需要' + (names[needed] || '资源') + '，去没去过的地方找...');
         return;
       }
     }
@@ -542,6 +563,23 @@ export class AIBehavior {
     // 阶段5：补充食物
     if (ai.hunger < 70) return 'berry';
     return null;
+  }
+
+  _exploreUnknown() {
+    const ai = this.gs.ai;
+    if (this.memory) {
+      const dir = this.memory.findUnexploredDirection(ai.x, ai.y);
+      if (dir !== null) {
+        const dist = 200 + Math.random() * 200;
+        this.targetX = Math.max(50, Math.min(3150, ai.x + Math.cos(dir) * dist));
+        this.targetY = Math.max(50, Math.min(2350, ai.y + Math.sin(dir) * dist));
+        this.action = ACTION.WANDER;
+        logger.debug('决策', '探索未知方向', { angle: Math.round(dir * 180 / Math.PI) });
+        return;
+      }
+    }
+    // 都探索过了就随机走
+    this._wanderFar();
   }
 
   _wanderNear(center, radius) {

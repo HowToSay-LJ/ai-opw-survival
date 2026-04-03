@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.3.5';
+export const VERSION = 'v0.3.8';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -10,6 +10,8 @@ import { MapGenerator } from './world/MapGenerator.js';
 import { GameState, PHASE } from './game/GameState.js';
 import { NightUI } from './render/NightUI.js';
 import { AIBehavior } from './entities/AIBehavior.js';
+import { MapMemory } from './systems/MapMemory.js';
+import { logger } from './systems/Logger.js';
 import { wobble } from './render/SketchTools.js';
 
 // ===== 初始化 =====
@@ -50,8 +52,21 @@ function buildMinimapBg() {
 
 function drawMinimap() {
   if (!mmBgCache) buildMinimapBg();
-  // 背景
   mmCtx.drawImage(mmBgCache, 0, 0);
+
+  // 战争迷雾：未探索区域覆盖半透明黑色
+  const scaleX = MMW / map.width;
+  const scaleY = MMH / map.height;
+  const gs32 = mapMemory.gridSize;
+
+  mmCtx.fillStyle = 'rgba(60,55,50,0.55)';
+  for (let gy = 0; gy < mapMemory.gridRows; gy++) {
+    for (let gx = 0; gx < mapMemory.gridCols; gx++) {
+      if (!mapMemory.explored[gy * mapMemory.gridCols + gx]) {
+        mmCtx.fillRect(gx * gs32 * scaleX, gy * gs32 * scaleY, gs32 * scaleX + 0.5, gs32 * scaleY + 0.5);
+      }
+    }
+  }
 
   // 视口框
   const sx = (camera.x / map.width) * MMW;
@@ -67,6 +82,10 @@ function drawMinimap() {
   const ay = (gs.ai.y / map.height) * MMH;
   mmCtx.fillStyle = '#e04040';
   mmCtx.beginPath(); mmCtx.arc(ax, ay, 3, 0, Math.PI * 2); mmCtx.fill();
+
+  // 探索百分比
+  mmCtx.fillStyle = '#999'; mmCtx.font = '9px Georgia,serif';
+  mmCtx.fillText(`探索 ${mapMemory.exploredPercent}%`, 4, MMH - 4);
 }
 
 let time = 0;
@@ -100,24 +119,34 @@ const rocks = [
 ];
 // ===== 可采集资源（统一格式：{ x, y, resourceType, depleted }） =====
 const resources = [
-  // 浆果（安全区少量，近区更多，逼迫外出）
+  // 浆果（安全区4个，近区8个，共12个）
+  // 安全区
   { x:1550, y:1100, resourceType:'berry', depleted:false },
   { x:1650, y:1180, resourceType:'berry', depleted:false },
   { x:1500, y:1250, resourceType:'berry', depleted:false },
-  // 近区森林（需要走一段才到）
-  { x:600, y:1000, resourceType:'berry', depleted:false },
-  { x:700, y:1150, resourceType:'berry', depleted:false },
+  { x:1700, y:1300, resourceType:'berry', depleted:false },
+  // 近区-北方森林
   { x:1350, y:550, resourceType:'berry', depleted:false },
   { x:1600, y:480, resourceType:'berry', depleted:false },
+  { x:1450, y:650, resourceType:'berry', depleted:false },
+  // 近区-西方森林
+  { x:600, y:1000, resourceType:'berry', depleted:false },
+  { x:700, y:1150, resourceType:'berry', depleted:false },
+  { x:550, y:1100, resourceType:'berry', depleted:false },
+  // 近区-东南森林
   { x:2200, y:1600, resourceType:'berry', depleted:false },
-  // 树木（近区森林，无限）
+  { x:2300, y:1700, resourceType:'berry', depleted:false },
+  // 树木（出生点附近2个 + 各森林区）
+  { x:1500, y:1050, resourceType:'wood', depleted:false },  // 出生点北侧150px
+  { x:1750, y:1100, resourceType:'wood', depleted:false },  // 出生点东北170px
   { x:1320, y:500, resourceType:'wood', depleted:false },
   { x:1500, y:650, resourceType:'wood', depleted:false },
   { x:1700, y:500, resourceType:'wood', depleted:false },
   { x:550, y:980, resourceType:'wood', depleted:false },
   { x:680, y:1080, resourceType:'wood', depleted:false },
   { x:2250, y:1580, resourceType:'wood', depleted:false },
-  // 石头（近区溪边 + 中区山地大量）
+  // 石头（出生点附近1个 + 近区溪边 + 中区山地大量）
+  { x:1650, y:1050, resourceType:'stone', depleted:false },  // 出生点北侧160px
   { x:1400, y:950, resourceType:'stone', depleted:false },
   { x:1700, y:1000, resourceType:'stone', depleted:false },
   { x:1300, y:1100, resourceType:'stone', depleted:false },
@@ -255,8 +284,11 @@ import { CombatSystem } from './entities/Combat.js';
 
 const craftingSystem = new CraftingSystem(gs);
 const combatSystem = new CombatSystem(gs);
+const mapMemory = new MapMemory(map.width, map.height);
 const worldObjects = { resources, rabbits, wolves, deers, fishes, foxes, shelterPos, campfirePos };
-const aiBehavior = new AIBehavior(gs, worldObjects, craftingSystem, combatSystem);
+const aiBehavior = new AIBehavior(gs, worldObjects, craftingSystem, combatSystem, mapMemory);
+
+logger.info('游戏', '游戏启动', { version: VERSION, personality: gs.ai.personality });
 
 // ===== 动物更新 =====
 function updateAnimals() {
@@ -432,6 +464,8 @@ function saveGameData() {
   gameSaved = true;
 
   const data = gs.exportSaveData(VERSION);
+  data.mapMemory = mapMemory.export();
+  data.logs = logger.export();
   const filename = `${VERSION}_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
   const json = JSON.stringify(data, null, 2);
 
@@ -455,7 +489,30 @@ function saveGameData() {
 }
 
 // ===== 夜晚流程控制 =====
+function respawnAnimals() {
+  // 每天刷新2只兔子（随机位置在安全区/近区）
+  const spawnAreas = [
+    { x: 1400, y: 1000, range: 200 },
+    { x: 1700, y: 1200, range: 200 },
+    { x: 600, y: 1050, range: 150 },
+    { x: 1500, y: 600, range: 150 },
+  ];
+  let respawned = 0;
+  for (const r of rabbits) {
+    if (r.dead && respawned < 2) {
+      const area = spawnAreas[Math.floor(Math.random() * spawnAreas.length)];
+      r.x = area.x + (Math.random() - 0.5) * area.range;
+      r.y = area.y + (Math.random() - 0.5) * area.range;
+      r.hp = 10;
+      r.dead = false;
+      respawned++;
+      logger.info('刷新', `兔子重生在 (${Math.round(r.x)},${Math.round(r.y)})`);
+    }
+  }
+}
+
 function enterNightFlow() {
+  respawnAnimals();
   // 模拟AI汇报（Phase 4会换成Claude API生成）
   const events = gs.todayEvents;
   let report = `今天是第${gs.day}天。`;
@@ -552,6 +609,7 @@ function frame(timestamp) {
 
   aiBehavior.update(dt);
   updateAnimals();
+  mapMemory.update(gs.ai.x, gs.ai.y, aiBehavior.viewRange, worldObjects, gs.day);
   camera.follow(gs.ai.x, gs.ai.y);
 
   // 清屏 + 背景
