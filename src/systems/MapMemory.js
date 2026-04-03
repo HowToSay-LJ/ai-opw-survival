@@ -108,6 +108,19 @@ export class MapMemory {
     }
   }
 
+  // 同步所有已知资源的最新状态（不受视野限制）
+  // 每帧调用，确保资源刷新/枯竭都能反映到记忆中
+  syncResourceStates(resources) {
+    for (const r of resources) {
+      const key = `${r.resourceType}_${Math.round(r.x)}_${Math.round(r.y)}`;
+      const entry = this.knownResources.get(key);
+      if (entry && entry.depleted !== r.depleted) {
+        entry.depleted = r.depleted;
+        logger.debug('记忆', `资源状态同步: ${r.resourceType} (${Math.round(r.x)},${Math.round(r.y)}) depleted=${r.depleted}`);
+      }
+    }
+  }
+
   // 查询记忆中某类资源最近的未采空点
   findRememberedResource(resourceType, aiX, aiY) {
     let nearest = null, minDist = Infinity;

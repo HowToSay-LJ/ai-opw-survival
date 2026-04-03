@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.3.8';
+export const VERSION = 'v0.3.9';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -610,6 +610,7 @@ function frame(timestamp) {
   aiBehavior.update(dt);
   updateAnimals();
   mapMemory.update(gs.ai.x, gs.ai.y, aiBehavior.viewRange, worldObjects, gs.day);
+  mapMemory.syncResourceStates(resources);
   camera.follow(gs.ai.x, gs.ai.y);
 
   // 清屏 + 背景
