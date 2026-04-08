@@ -60,7 +60,7 @@ ${strategyBook || '（暂无，按本能行动）'}
 
 【可用动作】
 collect: 采集资源。target填坐标"x,y"或资源类型(berry/wood/stone/grass/herb/clay)
-eat: 吃东西。target填 best_food
+eat: 吃东西。target填食物名（如"烤肉"/"浆果"/"生肉"），自己挑最合适的
 craft: 合成物品。target填配方id(stick/stone_axe/stone_spear/campfire/basic_shelter/cooked_meat)
 hunt: 追猎动物。target填坐标"x,y"或 nearest_rabbit/nearest_deer
 flee: 逃跑。target填 from_wolf 或方向

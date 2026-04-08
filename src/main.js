@@ -1,10 +1,10 @@
 // 游戏入口
-export const VERSION = 'v0.4.15';
+export const VERSION = 'v0.4.16';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
          drawMountainPeak, drawCliffWall,
-         drawRabbit, drawWolf, drawDeer, drawFox, drawFish } from './render/Sprites.js';
+         drawRabbit, drawWolf, drawFox, drawFish } from './render/Sprites.js';
 import { Camera } from './game/Camera.js';
 import { MapGenerator } from './world/MapGenerator.js';
 import { GameState, PHASE } from './game/GameState.js';
@@ -271,13 +271,7 @@ const wolves = [
   { x:500, y:1800, vx:0.12, phase:2, minX:350, maxX:650, hp:50, attackDamage:12, species:'狼', dead:false },
   { x:1500, y:2150, vx:-0.1, phase:0.5, minX:1350, maxX:1650, hp:50, attackDamage:12, species:'狼', dead:false },
 ];
-const deers = [
-  // 中心/北方
-  { x:1500, y:1050, headY:0, eating:false, timer:0 },
-  { x:1400, y:550, headY:0, eating:false, timer:60 },
-  // 西方
-  { x:650, y:1100, headY:0, eating:false, timer:30 },
-];
+// 鹿暂时移除（无完整移动/战斗逻辑），等 Phase 5 统一补
 const fishes = [
   // 湖泊（北方）
   { x:1480, y:540, vx:0.4, phase:0, minX:1440, maxX:1560 },
@@ -306,7 +300,7 @@ const llmProvider = LLM_PROVIDER === 'gemini'
   ? new GeminiLLM(GEMINI_API_KEY, GEMINI_MODEL)
   : new LocalLLM();
 
-const worldObjects = { resources, rabbits, wolves, deers, fishes, foxes, shelterPos, campfirePos };
+const worldObjects = { resources, rabbits, wolves, deers: [], fishes, foxes, shelterPos, campfirePos };
 const aiBehavior = new AIBehavior(gs, worldObjects, craftingSystem, combatSystem, mapMemory, llmProvider);
 
 // 初始化 LLM
@@ -336,7 +330,6 @@ function updateAnimals() {
     if (w.dead) continue;
     if (!w.chasing) { w.x += w.vx; w.phase += 0.02; if (w.x > w.maxX || w.x < w.minX) w.vx *= -1; }
   }
-  for (const d of deers) { d.timer++; if (d.timer % 120 === 0) d.eating = !d.eating; d.headY += (d.eating ? 8 : 0 - d.headY) * 0.05; }
   for (const f of fishes) { f.x += f.vx; f.phase += 0.03; if (f.x > f.maxX || f.x < f.minX) f.vx *= -1; }
   for (const f of foxes) { f.x += f.vx; f.phase += 0.03; if (f.x > f.maxX || f.x < f.minX) f.vx *= -1; }
 }
@@ -697,7 +690,6 @@ function frame(timestamp) {
   // 动物
   rabbits.forEach(r => { if (!r.dead && camera.isVisible(r.x, r.y)) draws.push({ y: r.y, fn: () => { const hop = Math.abs(Math.sin(r.phase * 3)) * 5; drawRabbit(ctx, r.x - cx, r.y - cy, r.vx < 0 ? -1 : 1, hop); } }); });
   wolves.forEach(w => { if (!w.dead && camera.isVisible(w.x, w.y)) draws.push({ y: w.y, fn: () => { const tw = wobble(w.phase * 100, 5, 2); drawWolf(ctx, w.x - cx, w.y - cy, w.vx < 0 ? -1 : 1, tw); } }); });
-  deers.forEach(d => { if (camera.isVisible(d.x, d.y)) draws.push({ y: d.y, fn: () => drawDeer(ctx, d.x - cx, d.y - cy, d.headY) }); });
   fishes.forEach(f => { if (camera.isVisible(f.x, f.y)) draws.push({ y: f.y, fn: () => { const fy = f.y + Math.sin(f.phase * 2) * 3; drawFish(ctx, f.x - cx, fy - cy, f.vx < 0 ? -1 : 1); } }); });
   foxes.forEach(f => { if (camera.isVisible(f.x, f.y)) draws.push({ y: f.y, fn: () => { const tw = wobble(f.phase * 80, 4, 1.5); drawFox(ctx, f.x - cx, f.y - cy, f.vx < 0 ? -1 : 1, tw); } }); });
 

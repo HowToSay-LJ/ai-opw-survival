@@ -47,6 +47,9 @@ export class AIBehavior {
     this.lastTrigger = '';
     this.lastHp = gameState.ai.hp;
 
+    // 资源刷新队列（游戏时间驱动）：[{ resource, remaining }]
+    this.respawnQueue = [];
+
     // 暴露给 GameState（用于 LLM prompt 中查可合成配方）
     gameState._craftingSystem = craftingSystem;
   }
@@ -61,10 +64,19 @@ export class AIBehavior {
     this.combat.update(dt);
 
     // 被攻击检测（唯一的环境触发器，10秒冷却）
-    this._checkAttackTrigger();
+    this._checkAttackTrigger(dt);
 
     // 周期性决策计时
     this.periodicTimer += dt;
+
+    // 无限资源刷新（游戏时间驱动）
+    for (let i = this.respawnQueue.length - 1; i >= 0; i--) {
+      this.respawnQueue[i].remaining -= dt;
+      if (this.respawnQueue[i].remaining <= 0) {
+        this.respawnQueue[i].resource.depleted = false;
+        this.respawnQueue.splice(i, 1);
+      }
+    }
 
     // 看门狗：pendingDecision 卡了超过15秒强制释放
     if (this.pendingDecision) {
@@ -113,18 +125,18 @@ export class AIBehavior {
   }
 
   // 被攻击检测（10秒冷却防重复）
-  _checkAttackTrigger() {
+  _checkAttackTrigger(dt) {
     const ai = this.gs.ai;
     if (ai.hp < this.lastHp - 5 && !this.pendingDecision) {
       if (!this._attackTriggerCooldown || this._attackTriggerCooldown <= 0) {
         this.lastTrigger = `被攻击！生命从${Math.round(this.lastHp)}%降到${Math.round(ai.hp)}%`;
-        this.action = ACTION.IDLE; // 中断当前行动
-        this._attackTriggerCooldown = 10; // 10秒冷却
+        this.action = ACTION.IDLE;
+        this._attackTriggerCooldown = 10;
         logger.info('触发', '被攻击中断', { hp: Math.round(ai.hp) });
       }
     }
     this.lastHp = ai.hp;
-    if (this._attackTriggerCooldown > 0) this._attackTriggerCooldown -= 0.016;
+    if (this._attackTriggerCooldown > 0) this._attackTriggerCooldown -= dt;
   }
 
   // 请求 LLM 决策
@@ -235,11 +247,24 @@ export class AIBehavior {
       }
 
       case 'eat': {
-        const food = ai.inventory.find(i => i.type === 'food');
-        if (food) {
+        // LLM 通过 target 指定吃哪种食物（如 "烤肉" / "浆果" / "生肉"）
+        // 不指定就吃背包里的第一个食物（兼容旧调用）
+        let foodIdx = -1;
+        if (target && target !== 'best_food') {
+          foodIdx = ai.inventory.findIndex(i => i.type === 'food' && i.name === target);
+          if (foodIdx < 0) {
+            logger.warn('决策', `背包没有 ${target}`);
+          }
+        }
+        if (foodIdx < 0) {
+          foodIdx = ai.inventory.findIndex(i => i.type === 'food');
+        }
+        if (foodIdx >= 0) {
+          this._eatTargetIdx = foodIdx;
           this.action = ACTION.EAT;
           this.eatProgress = 0;
         } else {
+          this.lastTrigger = '没有食物可吃';
           this._decideFallback();
         }
         break;
@@ -261,10 +286,11 @@ export class AIBehavior {
           if (recipe && recipe.facility === 'campfire' && ai.campfirePos) {
             const dist = Math.hypot(ai.x - ai.campfirePos.x, ai.y - ai.campfirePos.y);
             if (dist > 60) {
+              // 暂存待合成的配方，到达篝火后自动开始合成
+              this._pendingCraftTarget = recipeId;
               this.action = ACTION.GOTO;
               this.targetX = ai.campfirePos.x;
               this.targetY = ai.campfirePos.y;
-              this.lastTrigger = '到达篝火旁，准备合成' + (recipe.name || recipeId);
               break;
             }
           }
@@ -291,9 +317,8 @@ export class AIBehavior {
             break;
           }
         }
-        const prey = (target||'').includes('deer')
-          ? this._findNearest(this.world.deers, 300)
-          : this._findNearest(this.world.rabbits, 300);
+        // 鹿暂时移除，所有 hunt fallback 都找兔子
+        const prey = this._findNearest(this.world.rabbits, 300);
         if (prey) {
           this.action = ACTION.HUNT;
           this.huntTarget = prey.obj;
@@ -455,6 +480,12 @@ export class AIBehavior {
           if (this.action === ACTION.GOTO && this.collectTarget) {
             this.action = ACTION.COLLECT;
             this.collectProgress = 0;
+          } else if (this.action === ACTION.GOTO && this._pendingCraftTarget) {
+            // 走到篝火旁了，恢复合成
+            this.action = ACTION.CRAFT;
+            this.craftTarget = this._pendingCraftTarget;
+            this._pendingCraftTarget = null;
+            this.craftProgress = 0;
           } else if (this.action === ACTION.RETURN_HOME) {
             this.lastTrigger = '到家了';
             this.action = ACTION.IDLE;
@@ -534,7 +565,7 @@ export class AIBehavior {
             } else {
               this.lastTrigger = '背包满了';
             }
-            if (res.infinite) setTimeout(() => { ct.depleted = false; }, 3000);
+            if (res.infinite) this.respawnQueue.push({ resource: ct, remaining: 3 });
           } else {
             this.lastTrigger = '资源已采空';
           }
@@ -545,8 +576,17 @@ export class AIBehavior {
       }
 
       case ACTION.EAT: {
-        const foodIdx = ai.inventory.findIndex(i => i.type === 'food');
-        if (foodIdx < 0) { this.gs.ai.eatingInfo = null; this.lastTrigger = '没有食物'; this.action = ACTION.IDLE; break; }
+        // 用之前 _applyLLMDecision 里指定的索引；若失效则取第一个食物
+        let foodIdx = (this._eatTargetIdx != null && ai.inventory[this._eatTargetIdx]?.type === 'food')
+          ? this._eatTargetIdx
+          : ai.inventory.findIndex(i => i.type === 'food');
+        if (foodIdx < 0) {
+          this.gs.ai.eatingInfo = null;
+          this._eatTargetIdx = null;
+          this.lastTrigger = '没有食物';
+          this.action = ACTION.IDLE;
+          break;
+        }
         this.eatProgress = (this.eatProgress || 0) + dt;
         ai.expression = 'happy';
         const food = ai.inventory[foodIdx];
@@ -561,6 +601,7 @@ export class AIBehavior {
           this.gs.logEvent('进食' + food.name, '成功', `饥饿恢复到${Math.round(ai.hunger)}%`);
           this.gs.ai.eatingInfo = null;
           this.eatProgress = 0;
+          this._eatTargetIdx = null;
           this.lastTrigger = '吃完了' + food.name;
           this.action = ACTION.IDLE;
         }
@@ -658,7 +699,6 @@ export class AIBehavior {
     const allAnimals = [
       ...this.world.rabbits.map(a => ({ ref: a, type: '兔子', hostile: false })),
       ...this.world.wolves.map(a => ({ ref: a, type: '狼', hostile: true })),
-      ...this.world.deers.map(a => ({ ref: a, type: '鹿', hostile: false })),
       ...this.world.foxes.map(a => ({ ref: a, type: '狐狸', hostile: false })),
     ];
     for (const item of allAnimals) {
@@ -689,19 +729,6 @@ export class AIBehavior {
     // 缓存供 _applyLLMDecision 使用
     this._lastVisibleObjects = result;
     return result;
-  }
-
-  _dirName(fx, fy, tx, ty) {
-    const angle = Math.atan2(ty - fy, tx - fx);
-    const deg = ((angle * 180 / Math.PI) + 360) % 360;
-    if (deg < 22.5 || deg >= 337.5) return '东';
-    if (deg < 67.5) return '东南';
-    if (deg < 112.5) return '南';
-    if (deg < 157.5) return '西南';
-    if (deg < 202.5) return '西';
-    if (deg < 247.5) return '西北';
-    if (deg < 292.5) return '北';
-    return '东北';
   }
 
   _goCollect(resourceObj) {
@@ -785,10 +812,6 @@ export class AIBehavior {
     this.targetX = Math.max(50, Math.min(3150, center.x + Math.cos(angle) * dist));
     this.targetY = Math.max(50, Math.min(2350, center.y + Math.sin(angle) * dist));
     this.action = ACTION.WANDER;
-  }
-
-  _hasItems(name, count) {
-    return this.gs.ai.inventory.filter(i => i.name === name).reduce((s, i) => s + i.count, 0) >= count;
   }
 
   _addToInventory(item) {
