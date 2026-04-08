@@ -203,6 +203,10 @@ wait: 原地等待观察
 
     const start = performance.now();
 
+    // 10秒超时保护
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     try {
       const resp = await fetch(OLLAMA_URL, {
         method: 'POST',
@@ -216,7 +220,9 @@ wait: 原地等待观察
           think: false,
           options: { num_predict: 100, temperature: 0.7 },
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       const data = await resp.json();
       const content = data.message?.content || '';
@@ -236,8 +242,10 @@ wait: 原地等待观察
         return null;
       }
     } catch (e) {
+      clearTimeout(timeoutId);
       const dur = ((performance.now() - start) / 1000).toFixed(2);
-      logger.error('LLM', `调用失败 (${dur}s): ${e.message}`);
+      const reason = e.name === 'AbortError' ? '超时(>10s)' : e.message;
+      logger.error('LLM', `调用失败 (${dur}s): ${reason}`);
       return null;
     }
   }
