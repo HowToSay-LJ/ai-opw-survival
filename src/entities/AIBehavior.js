@@ -139,18 +139,51 @@ export class AIBehavior {
     }
   }
 
+  // 解析坐标 target，如 "1550,1100" 或 "berry@1550,1100" 或 "(1550,1100)"
+  _parseCoords(target) {
+    if (!target) return null;
+    const m = String(target).match(/(\d+)\s*[,，]\s*(\d+)/);
+    if (m) return { x: parseInt(m[1]), y: parseInt(m[2]) };
+    return null;
+  }
+
+  // 在 _lastVisibleObjects 中找最接近某坐标的资源/动物
+  _findVisibleAt(coords, list) {
+    if (!coords || !list) return null;
+    let nearest = null, minDist = 50; // 50px容差
+    for (const item of list) {
+      const d = Math.hypot(item.x - coords.x, item.y - coords.y);
+      if (d < minDist) { minDist = d; nearest = item; }
+    }
+    return nearest;
+  }
+
   // 应用 LLM 决策
   _applyLLMDecision(result) {
     const ai = this.gs.ai;
     const { action, target, thought } = result;
 
-    // 显示想法
     if (thought) this._think(thought);
-
     this.gs.logEvent(`LLM决策: ${action}`, target, thought);
+
+    const coords = this._parseCoords(target);
 
     switch (action) {
       case 'collect': {
+        // 优先：坐标精确定位
+        if (coords) {
+          const hit = this._findVisibleAt(coords, this._lastVisibleObjects?.resources);
+          if (hit && hit._ref && !hit._ref.depleted) {
+            this._goCollect(hit._ref);
+            break;
+          }
+          // 找不到对应资源，按坐标走过去
+          this.action = ACTION.GOTO;
+          this.targetX = coords.x;
+          this.targetY = coords.y;
+          break;
+        }
+        // 资源类型
         const typeMap = {
           'nearest_berry': 'berry', 'berry': 'berry', '浆果': 'berry',
           'nearest_wood': 'wood', 'wood': 'wood', '木头': 'wood',
@@ -221,7 +254,19 @@ export class AIBehavior {
       }
 
       case 'hunt': {
-        const prey = target.includes('deer')
+        // 优先：坐标精确定位
+        if (coords) {
+          const hit = this._findVisibleAt(coords, this._lastVisibleObjects?.animals);
+          if (hit && hit._ref && !hit._ref.dead) {
+            this.action = ACTION.HUNT;
+            this.huntTarget = hit._ref;
+            this.targetX = hit._ref.x;
+            this.targetY = hit._ref.y;
+            ai.expression = 'determined';
+            break;
+          }
+        }
+        const prey = (target||'').includes('deer')
           ? this._findNearest(this.world.deers, 300)
           : this._findNearest(this.world.rabbits, 300);
         if (prey) {
@@ -263,6 +308,13 @@ export class AIBehavior {
       }
 
       case 'goto': {
+        // 优先：坐标
+        if (coords) {
+          this.action = ACTION.GOTO;
+          this.targetX = coords.x;
+          this.targetY = coords.y;
+          break;
+        }
         // 资源类型 → 转为 collect
         const resTypes = ['berry','wood','stone','grass','herb','clay','浆果','木头','石头','草','止血草','粘土'];
         if (resTypes.includes(target)) {
@@ -563,54 +615,54 @@ export class AIBehavior {
     }
   }
 
-  // 收集视野内所有物体（供 LLM prompt）
+  // 收集视野内所有物体（供 LLM prompt，使用绝对坐标）
   _getVisibleObjects() {
     const ai = this.gs.ai;
     const result = { resources: [], animals: [], buildings: [] };
 
-    // 资源
     for (const r of this.world.resources) {
       const dist = Math.hypot(r.x - ai.x, r.y - ai.y);
       if (dist > this.viewRange) continue;
       result.resources.push({
-        type: r.resourceType, distance: Math.round(dist),
-        direction: this._dirName(ai.x, ai.y, r.x, r.y),
-        depleted: r.depleted,
+        type: r.resourceType, x: Math.round(r.x), y: Math.round(r.y),
+        distance: Math.round(dist), depleted: r.depleted,
+        _ref: r, // 内部引用，用于直接采集
       });
     }
 
-    // 动物
     const allAnimals = [
-      ...this.world.rabbits.map(a => ({ ...a, type: '兔子', hostile: false })),
-      ...this.world.wolves.map(a => ({ ...a, type: '狼', hostile: true })),
-      ...this.world.deers.map(a => ({ ...a, type: '鹿', hostile: false })),
-      ...this.world.foxes.map(a => ({ ...a, type: '狐狸', hostile: false })),
+      ...this.world.rabbits.map(a => ({ ref: a, type: '兔子', hostile: false })),
+      ...this.world.wolves.map(a => ({ ref: a, type: '狼', hostile: true })),
+      ...this.world.deers.map(a => ({ ref: a, type: '鹿', hostile: false })),
+      ...this.world.foxes.map(a => ({ ref: a, type: '狐狸', hostile: false })),
     ];
-    for (const a of allAnimals) {
+    for (const item of allAnimals) {
+      const a = item.ref;
       if (a.dead) continue;
       const dist = Math.hypot(a.x - ai.x, a.y - ai.y);
       if (dist > this.viewRange) continue;
       result.animals.push({
-        type: a.type, distance: Math.round(dist),
-        direction: this._dirName(ai.x, ai.y, a.x, a.y),
-        hostile: a.hostile,
+        type: item.type, x: Math.round(a.x), y: Math.round(a.y),
+        distance: Math.round(dist), hostile: item.hostile,
+        _ref: a,
       });
     }
 
-    // 建筑
     if (ai.shelterPos) {
       const dist = Math.hypot(ai.shelterPos.x - ai.x, ai.shelterPos.y - ai.y);
       if (dist <= this.viewRange) {
-        result.buildings.push({ type: '庇护所', distance: Math.round(dist), direction: this._dirName(ai.x, ai.y, ai.shelterPos.x, ai.shelterPos.y) });
+        result.buildings.push({ type: '庇护所', x: Math.round(ai.shelterPos.x), y: Math.round(ai.shelterPos.y), distance: Math.round(dist) });
       }
     }
     if (ai.campfirePos) {
       const dist = Math.hypot(ai.campfirePos.x - ai.x, ai.campfirePos.y - ai.y);
       if (dist <= this.viewRange) {
-        result.buildings.push({ type: '篝火', distance: Math.round(dist), direction: this._dirName(ai.x, ai.y, ai.campfirePos.x, ai.campfirePos.y) });
+        result.buildings.push({ type: '篝火', x: Math.round(ai.campfirePos.x), y: Math.round(ai.campfirePos.y), distance: Math.round(dist) });
       }
     }
 
+    // 缓存供 _applyLLMDecision 使用
+    this._lastVisibleObjects = result;
     return result;
   }
 

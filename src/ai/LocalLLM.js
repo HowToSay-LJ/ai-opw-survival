@@ -68,15 +68,23 @@ ${strategyBook || '（暂无，按本能行动）'}
 石头+木头→篝火(需每天添加木头)
 生肉(在篝火旁)→烤肉(回复饥饿40)
 
+【坐标系统】
+世界是2D坐标系。你的位置和所有可见物体都用(x,y)绝对坐标标注。
+你可以用坐标精确指定目标，例如：
+  collect target="1550,1100"  → 采集这个坐标的资源
+  hunt target="2300,800"      → 追猎这个坐标的动物
+  goto target="1700,500"      → 走到这个坐标
+推荐对视野内的具体目标使用坐标，而不是模糊的方向词。
+
 【可用动作】
-collect: 采集资源。target填资源类型(berry/wood/stone/grass/herb/clay)
-eat: 吃东西。target填 best_food（自动选最好的食物）
+collect: 采集资源。target填坐标"x,y"或资源类型(berry/wood/stone/grass/herb/clay)
+eat: 吃东西。target填 best_food
 craft: 合成物品。target填配方id(stick/stone_axe/stone_spear/campfire/basic_shelter/cooked_meat)
-hunt: 追猎动物。target填 nearest_rabbit 或 nearest_deer
+hunt: 追猎动物。target填坐标"x,y"或 nearest_rabbit/nearest_deer
 flee: 逃跑。target填 from_wolf 或方向(north/south/east/west)
-fight: 战斗。target填 nearest_wolf
-goto: 前往某处。target填 shelter/campfire 或方向(north/south/east/west/northeast/southeast/northwest/southwest)
-wander: 闲逛探索。target填 explore（去未探索区域）或 nearby（附近转转）
+fight: 战斗。target填坐标"x,y"或 nearest_wolf
+goto: 前往某处。target填坐标"x,y"或 shelter/campfire 或方向
+wander: 闲逛探索。target填 explore（去未探索区域）
 wait: 原地等待观察
 
 【世界规则】
@@ -141,17 +149,19 @@ wait: 原地等待观察
       prompt += '\n';
     }
 
-    // 视野内
+    // 视野内（绝对坐标，按距离排序）
     prompt += '\n视野内:\n';
     const vis = visibleObjects;
     if (vis.resources.length === 0 && vis.animals.length === 0) {
       prompt += '  什么都没有\n';
     } else {
-      for (const r of vis.resources.slice(0, 6)) {
-        prompt += `  ${r.type} ${r.direction}方 ${r.distance}px${r.depleted ? '(已采空)' : ''}\n`;
+      const sortedRes = [...vis.resources].sort((a,b) => a.distance - b.distance);
+      for (const r of sortedRes.slice(0, 8)) {
+        prompt += `  ${r.type}(${r.x},${r.y}) 距离${r.distance}${r.depleted ? '(已采空)' : ''}\n`;
       }
-      for (const a of vis.animals.slice(0, 4)) {
-        prompt += `  ${a.type} ${a.direction}方 ${a.distance}px${a.hostile ? '(危险!)' : ''}\n`;
+      const sortedAni = [...vis.animals].sort((a,b) => a.distance - b.distance);
+      for (const a of sortedAni.slice(0, 4)) {
+        prompt += `  ${a.type}(${a.x},${a.y}) 距离${a.distance}${a.hostile ? '(危险!)' : ''}\n`;
       }
     }
 
