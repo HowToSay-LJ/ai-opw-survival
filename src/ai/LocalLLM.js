@@ -125,9 +125,11 @@ wait: 原地等待观察
     prompt += `装备:${wpn ? wpn.name + '(' + wpn.durability + ')' : '无武器'}`;
     prompt += '\n';
 
-    // 背包
+    // 背包（合并同名物品）
     if (ai.inventory.length > 0) {
-      prompt += `背包:${ai.inventory.map(i => i.name + '×' + i.count).join(' ')}`;
+      const merged = {};
+      for (const i of ai.inventory) merged[i.name] = (merged[i.name]||0) + i.count;
+      prompt += `背包:${Object.entries(merged).map(([n,c]) => n+'×'+c).join(' ')}`;
     } else {
       prompt += '背包:空';
     }
@@ -149,15 +151,16 @@ wait: 原地等待观察
       prompt += '\n';
     }
 
-    // 视野内（绝对坐标，按距离排序）
+    // 视野内（绝对坐标，按距离排序，过滤掉已采空的）
     prompt += '\n视野内:\n';
     const vis = visibleObjects;
-    if (vis.resources.length === 0 && vis.animals.length === 0) {
+    const liveRes = vis.resources.filter(r => !r.depleted);
+    if (liveRes.length === 0 && vis.animals.length === 0) {
       prompt += '  什么都没有\n';
     } else {
-      const sortedRes = [...vis.resources].sort((a,b) => a.distance - b.distance);
+      const sortedRes = [...liveRes].sort((a,b) => a.distance - b.distance);
       for (const r of sortedRes.slice(0, 8)) {
-        prompt += `  ${r.type}(${r.x},${r.y}) 距离${r.distance}${r.depleted ? '(已采空)' : ''}\n`;
+        prompt += `  ${r.type}(${r.x},${r.y}) 距离${r.distance}\n`;
       }
       const sortedAni = [...vis.animals].sort((a,b) => a.distance - b.distance);
       for (const a of sortedAni.slice(0, 4)) {
@@ -199,7 +202,7 @@ wait: 原地等待观察
 
     const userPrompt = this.buildUserPrompt(gameState, visibleObjects, memorySummary, triggerEvent);
 
-    logger.info('LLM', `决策请求 [${triggerEvent || 'idle'}]`, userPrompt.slice(0, 100) + '...');
+    logger.info('LLM', `决策请求 [${triggerEvent || 'idle'}]`, userPrompt);
 
     const start = performance.now();
 

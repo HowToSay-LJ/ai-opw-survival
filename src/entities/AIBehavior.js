@@ -177,10 +177,16 @@ export class AIBehavior {
             this._goCollect(hit._ref);
             break;
           }
-          // 找不到对应资源，按坐标走过去
-          this.action = ACTION.GOTO;
-          this.targetX = coords.x;
-          this.targetY = coords.y;
+          // 坐标对应的资源不可用 → 找视野内任何还能采的资源
+          logger.warn('决策', `坐标(${coords.x},${coords.y})资源不可用，找替代`);
+          const altRes = this.world.resources
+            .filter(r => !r.depleted && Math.hypot(r.x - ai.x, r.y - ai.y) <= this.viewRange)
+            .sort((a,b) => Math.hypot(a.x-ai.x, a.y-ai.y) - Math.hypot(b.x-ai.x, b.y-ai.y))[0];
+          if (altRes) {
+            this._goCollect(altRes);
+          } else {
+            this._exploreUnknown();
+          }
           break;
         }
         // 资源类型

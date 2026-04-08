@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI 生存游戏 v0.4.10</title>
+<title>AI 生存游戏 v0.4.12</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -30,6 +30,10 @@
 <body>
 <canvas id="game" width="960" height="720"></canvas>
 <canvas id="minimap" width="140" height="140"></canvas>
-<script type="module" src="src/main.js"></script>
+<script type="module">
+  // 用时间戳防止 ES Module 缓存
+  const v = Date.now();
+  await import(`./src/main.js?v=${v}`);
+</script>
 </body>
 </html>
