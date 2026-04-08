@@ -66,6 +66,19 @@ export class AIBehavior {
     // 周期性决策计时
     this.periodicTimer += dt;
 
+    // 看门狗：pendingDecision 卡了超过15秒强制释放
+    if (this.pendingDecision) {
+      this._pendingTimer = (this._pendingTimer || 0) + dt;
+      if (this._pendingTimer > 15) {
+        logger.error('决策', 'pendingDecision卡死15秒，强制释放');
+        this.pendingDecision = false;
+        this._pendingTimer = 0;
+        this.action = ACTION.IDLE;
+      }
+    } else {
+      this._pendingTimer = 0;
+    }
+
     // 决策触发（两种方式）
     if (!this.pendingDecision) {
       let shouldDecide = false;
@@ -77,8 +90,14 @@ export class AIBehavior {
         trigger = this.lastTrigger || '行动完成';
         this.lastTrigger = '';
       }
-      // 方式2：周期性保底（8秒，仅在 WANDER/GOTO 中）
-      else if (this.periodicTimer > 8 && (this.action === ACTION.WANDER || this.action === ACTION.GOTO)) {
+      // 方式2：周期性保底（8秒，移动类行动中）
+      else if (this.periodicTimer > 8 && (
+        this.action === ACTION.WANDER ||
+        this.action === ACTION.GOTO ||
+        this.action === ACTION.HUNT ||
+        this.action === ACTION.FLEE ||
+        this.action === ACTION.RETURN_HOME
+      )) {
         shouldDecide = true;
         trigger = '周期性重新评估';
       }
