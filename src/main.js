@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.4.13';
+export const VERSION = 'v0.5.0';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -12,7 +12,21 @@ import { NightUI } from './render/NightUI.js';
 import { AIBehavior } from './entities/AIBehavior.js';
 import { MapMemory } from './systems/MapMemory.js';
 import { LocalLLM } from './ai/LocalLLM.js';
+import { GeminiLLM } from './ai/GeminiLLM.js';
 import { logger } from './systems/Logger.js';
+
+// 加载本地配置（API key等），如果没有就用默认
+let LLM_PROVIDER = 'local';
+let GEMINI_API_KEY = '';
+let GEMINI_MODEL = 'gemini-2.0-flash';
+try {
+  const cfg = await import('./ai/config.local.js');
+  LLM_PROVIDER = cfg.LLM_PROVIDER || 'local';
+  GEMINI_API_KEY = cfg.GEMINI_API_KEY || '';
+  GEMINI_MODEL = cfg.GEMINI_MODEL || 'gemini-2.0-flash';
+} catch (e) {
+  console.warn('未找到 config.local.js，默认使用本地LLM。复制 config.example.js 到 config.local.js 配置 Gemini。');
+}
 import { wobble } from './render/SketchTools.js';
 
 // ===== 初始化 =====
@@ -286,14 +300,19 @@ import { CombatSystem } from './entities/Combat.js';
 const craftingSystem = new CraftingSystem(gs);
 const combatSystem = new CombatSystem(gs);
 const mapMemory = new MapMemory(map.width, map.height);
-const localLLM = new LocalLLM();
+
+// 根据配置选择 LLM 提供者
+const llmProvider = LLM_PROVIDER === 'gemini'
+  ? new GeminiLLM(GEMINI_API_KEY, GEMINI_MODEL)
+  : new LocalLLM();
+
 const worldObjects = { resources, rabbits, wolves, deers, fishes, foxes, shelterPos, campfirePos };
-const aiBehavior = new AIBehavior(gs, worldObjects, craftingSystem, combatSystem, mapMemory, localLLM);
+const aiBehavior = new AIBehavior(gs, worldObjects, craftingSystem, combatSystem, mapMemory, llmProvider);
 
 // 初始化 LLM
-logger.info('游戏', '游戏启动', { version: VERSION, personality: gs.ai.personality });
-localLLM.buildSystemPrompt(gs.ai.personality, gs.strategyBook);
-localLLM.warmup();
+logger.info('游戏', '游戏启动', { version: VERSION, personality: gs.ai.personality, llm: LLM_PROVIDER });
+llmProvider.buildSystemPrompt(gs.ai.personality, gs.strategyBook);
+llmProvider.warmup();
 
 // ===== 动物更新 =====
 function updateAnimals() {
@@ -380,7 +399,7 @@ function drawUI() {
 
   // 版本号
   ctx.fillStyle = '#ccc'; ctx.font = '10px Georgia,serif';
-  ctx.fillText(VERSION, 10, VH - 8);
+  ctx.fillText(`${VERSION} · ${LLM_PROVIDER}`, 10, VH - 8);
 
   // ===== 背包面板（右下角） =====
   const bx = VW - 195, by = VH - 170;
@@ -542,7 +561,7 @@ function enterNightFlow() {
       ];
       gs.finishStrategyUpdate(gs.strategyBook + '\n' + msg, mockDiff);
       // 重建 LLM system prompt（策略手册更新了）
-      localLLM.buildSystemPrompt(gs.ai.personality, gs.strategyBook);
+      llmProvider.buildSystemPrompt(gs.ai.personality, gs.strategyBook);
     },
     // onNext：进入下一阶段
     () => {

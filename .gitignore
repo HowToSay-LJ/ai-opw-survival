@@ -1,3 +1,4 @@
 .DS_Store
 node_modules/
 .claude/
+src/ai/config.local.js
