@@ -12,7 +12,7 @@ const PERSONALITY_DESC = {
 };
 
 export class GeminiLLM {
-  constructor(apiKey, model = 'gemini-2.0-flash') {
+  constructor(apiKey, model = 'gemini-2.5-flash-lite') {
     this.apiKey = apiKey;
     this.model = model;
     this.endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;

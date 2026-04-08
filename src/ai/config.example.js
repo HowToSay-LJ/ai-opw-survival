@@ -4,4 +4,4 @@
 export const LLM_PROVIDER = 'gemini'; // 'local' 或 'gemini'
 
 export const GEMINI_API_KEY = 'YOUR_API_KEY_HERE';
-export const GEMINI_MODEL = 'gemini-2.0-flash';
+export const GEMINI_MODEL = 'gemini-2.5-flash-lite';
