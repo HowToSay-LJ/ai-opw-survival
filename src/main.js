@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.4.16';
+export const VERSION = 'v0.4.17';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -555,6 +555,8 @@ function enterNightFlow() {
       gs.finishStrategyUpdate(gs.strategyBook + '\n' + msg, mockDiff);
       // 重建 LLM system prompt（策略手册更新了）
       llmProvider.buildSystemPrompt(gs.ai.personality, gs.strategyBook);
+      // 清空短期对话记忆（新的一天开始）
+      if (llmProvider.clearMemory) llmProvider.clearMemory();
     },
     // onNext：进入下一阶段
     () => {

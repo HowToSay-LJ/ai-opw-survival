@@ -24,6 +24,9 @@ export class LocalLLM {
     this.totalTime = 0;
   }
 
+  // 占位：本地模型暂未实现对话历史
+  clearMemory() {}
+
   // 预热：让模型加载到内存
   async warmup() {
     logger.info('LLM', '正在预热模型...');

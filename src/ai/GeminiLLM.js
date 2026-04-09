@@ -20,6 +20,19 @@ export class GeminiLLM {
     this.ready = false;
     this.callCount = 0;
     this.totalTime = 0;
+
+    // 短期记忆：对话历史 + 决策历史
+    this.history = [];          // [{ user: text, model: text }]
+    this.maxHistory = 8;         // 最多保留最近 8 轮对话
+    this.recentDecisions = [];   // 最近 N 次决策（用于检测重复模式）
+    this.maxRecentDecisions = 6;
+  }
+
+  // 清空短期记忆（夜晚结束后或重开时调用）
+  clearMemory() {
+    this.history = [];
+    this.recentDecisions = [];
+    logger.info('LLM', '短期记忆已清空');
   }
 
   async warmup() {
@@ -92,7 +105,29 @@ wait: 原地等待
     const ai = gameState.ai;
     const timeLeft = Math.round(gameState.dayTimeLeft);
 
-    let prompt = `位置:(${Math.round(ai.x)},${Math.round(ai.y)}) `;
+    let prompt = '';
+
+    // === 反馈头部：明确告诉LLM上次决策的结果 ===
+    if (triggerEvent) {
+      const isFailure = /失败|没有|不可用|材料不足/.test(triggerEvent);
+      const isSuccess = /完成|成功|到家|到达/.test(triggerEvent);
+      if (isFailure) {
+        prompt += `❌ 上次决策结果：${triggerEvent}（请换一种思路，不要重复同样的尝试）\n`;
+      } else if (isSuccess) {
+        prompt += `✓ 上次决策结果：${triggerEvent}\n`;
+      } else {
+        prompt += `⚠️ ${triggerEvent}\n`;
+      }
+    }
+
+    // === 重复模式检测：如果连续多次同样的决策，强提醒 ===
+    const repeat = this._detectRepeatPattern();
+    if (repeat) {
+      prompt += `🚨 警告：你已连续 ${repeat.count} 次决定 "${repeat.action} ${repeat.target}"，这条路明显走不通！必须立刻换思路！\n`;
+    }
+    if (prompt) prompt += '\n';
+
+    prompt += `位置:(${Math.round(ai.x)},${Math.round(ai.y)}) `;
     prompt += `生命${Math.round(ai.hp)}% `;
     prompt += `饥饿${Math.round(ai.hunger)}%`;
     if (ai.hunger < 30) prompt += '(很饿!)';
@@ -161,6 +196,22 @@ wait: 原地等待
     return prompt;
   }
 
+  // 检测最近 N 次是否在反复同一个决策
+  _detectRepeatPattern() {
+    if (this.recentDecisions.length < 3) return null;
+    const last = this.recentDecisions[this.recentDecisions.length - 1];
+    let count = 1;
+    for (let i = this.recentDecisions.length - 2; i >= 0; i--) {
+      if (this.recentDecisions[i].action === last.action &&
+          this.recentDecisions[i].target === last.target) {
+        count++;
+      } else {
+        break;
+      }
+    }
+    return count >= 3 ? { action: last.action, target: last.target, count } : null;
+  }
+
   async decide(gameState, visibleObjects, memorySummary, triggerEvent) {
     if (!this.ready) {
       logger.warn('LLM', '模型未就绪，跳过决策');
@@ -168,7 +219,15 @@ wait: 原地等待
     }
 
     const userPrompt = this.buildUserPrompt(gameState, visibleObjects, memorySummary, triggerEvent);
-    logger.info('LLM', `决策请求 [${triggerEvent || 'idle'}]`, userPrompt);
+    logger.info('LLM', `决策请求 [${triggerEvent || 'idle'}] (历史${this.history.length}轮)`, userPrompt);
+
+    // 构建带历史的 contents（多轮对话）
+    const contents = [];
+    for (const turn of this.history) {
+      contents.push({ role: 'user', parts: [{ text: turn.user }] });
+      contents.push({ role: 'model', parts: [{ text: turn.model }] });
+    }
+    contents.push({ role: 'user', parts: [{ text: userPrompt }] });
 
     const start = performance.now();
     const controller = new AbortController();
@@ -181,7 +240,7 @@ wait: 原地等待
         signal: controller.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: this.systemPrompt }] },
-          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          contents,
           generationConfig: {
             temperature: 0.5,
             maxOutputTokens: 200,
@@ -207,6 +266,15 @@ wait: 原地等待
       const result = this._parseResponse(content);
       if (result) {
         logger.info('LLM', `决策结果 (${dur}s): ${result.action} → ${result.target}`, { thought: result.thought });
+
+        // 写入对话历史
+        this.history.push({ user: userPrompt, model: content });
+        while (this.history.length > this.maxHistory) this.history.shift();
+
+        // 写入决策历史（用于重复模式检测）
+        this.recentDecisions.push({ action: result.action, target: String(result.target || '') });
+        while (this.recentDecisions.length > this.maxRecentDecisions) this.recentDecisions.shift();
+
         return result;
       } else {
         logger.warn('LLM', `JSON解析失败 (${dur}s)`, content.slice(0, 200));
