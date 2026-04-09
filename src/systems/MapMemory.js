@@ -2,6 +2,7 @@
 // AI 只记住视野范围内看到过的东西，走过的地方标记为"已探索"
 
 import { logger } from './Logger.js';
+import { RESOURCE_TYPES } from '../data/recipes.js';
 
 export class MapMemory {
   constructor(worldWidth, worldHeight) {
@@ -173,18 +174,21 @@ export class MapMemory {
     };
   }
 
-  // 生成 LLM 可用的记忆摘要（使用绝对坐标）
+  // 生成 LLM 可用的记忆摘要（中文显示，绝对坐标）
   toPromptSummary(aiX, aiY) {
     const resources = Array.from(this.knownResources.values())
       .filter(r => !r.depleted)
       .sort((a, b) => Math.hypot(a.x - aiX, a.y - aiY) - Math.hypot(b.x - aiX, b.y - aiY))
       .map(r => {
         const dist = Math.round(Math.hypot(r.x - aiX, r.y - aiY));
-        return `${r.type}(${Math.round(r.x)},${Math.round(r.y)}) 距离${dist}`;
+        const typeInfo = RESOURCE_TYPES[r.type];
+        const cn = typeInfo ? typeInfo.name : r.type;
+        return `${cn}(${Math.round(r.x)},${Math.round(r.y)}) 距离${dist}`;
       });
 
+    const dangerNameMap = { wolf: '狼', bear: '熊', snake: '蛇' };
     const dangers = Array.from(this.knownDangers.values())
-      .map(d => `${d.type}(${Math.round(d.x)},${Math.round(d.y)}) 第${d.lastSeenDay}天见过`);
+      .map(d => `${dangerNameMap[d.type] || d.type}(${Math.round(d.x)},${Math.round(d.y)}) 第${d.lastSeenDay}天见过`);
 
     const unexplored = this.findUnexploredDirection(aiX, aiY);
 

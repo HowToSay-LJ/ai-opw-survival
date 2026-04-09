@@ -226,7 +226,6 @@ export class AIBehavior {
           'nearest_wood': 'wood', 'wood': 'wood', '木头': 'wood',
           'nearest_stone': 'stone', 'stone': 'stone', '石头': 'stone',
           'nearest_grass': 'grass', 'grass': 'grass', '草': 'grass',
-          'nearest_herb': 'herb', 'herb': 'herb', '止血草': 'herb',
           'nearest_clay': 'clay', 'clay': 'clay', '粘土': 'clay',
         };
         const resType = typeMap[target] || target;
@@ -366,13 +365,13 @@ export class AIBehavior {
           break;
         }
         // 资源类型 → 转为 collect
-        const resTypes = ['berry','wood','stone','grass','herb','clay','浆果','木头','石头','草','止血草','粘土'];
+        const resTypes = ['berry','wood','stone','grass','clay','浆果','木头','石头','草','粘土'];
         if (resTypes.includes(target)) {
           logger.info('决策', `goto ${target} → 转为 collect ${target}`);
           const typeMap = {
             'berry':'berry','浆果':'berry','wood':'wood','木头':'wood',
             'stone':'stone','石头':'stone','grass':'grass','草':'grass',
-            'herb':'herb','止血草':'herb','clay':'clay','粘土':'clay',
+            'clay':'clay','粘土':'clay',
           };
           const resType = typeMap[target] || target;
           const res = this._findNearestResource(resType);
@@ -689,10 +688,12 @@ export class AIBehavior {
     for (const r of this.world.resources) {
       const dist = Math.hypot(r.x - ai.x, r.y - ai.y);
       if (dist > this.viewRange) continue;
+      const typeInfo = RESOURCE_TYPES[r.resourceType];
       result.resources.push({
-        type: r.resourceType, x: Math.round(r.x), y: Math.round(r.y),
+        type: typeInfo ? typeInfo.name : r.resourceType, // 中文显示
+        x: Math.round(r.x), y: Math.round(r.y),
         distance: Math.round(dist), depleted: r.depleted,
-        _ref: r, // 内部引用，用于直接采集
+        _ref: r,
       });
     }
 

@@ -72,10 +72,10 @@ ${strategyBook || '（暂无，按本能行动）'}
   goto target="1700,500"
 
 【可用动作】
-collect: 采集资源。target填坐标"x,y"或资源类型(berry/wood/stone/grass/herb/clay)
+collect: 采集资源。target填坐标"x,y"或资源类型（"浆果"/"木头"/"石头"/"草"/"粘土"）
 eat: 吃东西。target填食物名（如"烤肉"/"浆果"/"生肉"），自己挑最合适的
 craft: 合成物品。target填配方id(stick/stone_axe/stone_spear/campfire/basic_shelter/cooked_meat)
-hunt: 追猎动物。target填坐标"x,y"或 nearest_rabbit/nearest_deer
+hunt: 追猎动物。target填坐标"x,y"或 nearest_rabbit
 flee: 逃跑。target填 from_wolf 或方向
 fight: 战斗。target填坐标"x,y"或 nearest_wolf
 goto: 前往某处。target填坐标"x,y"或 shelter/campfire 或方向

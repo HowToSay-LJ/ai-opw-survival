@@ -1,5 +1,5 @@
 // 游戏入口
-export const VERSION = 'v0.4.17';
+export const VERSION = 'v0.4.18';
 import { setTime } from './render/SketchTools.js';
 import { drawAICharacter, drawBubble, drawTree, drawGrass, drawBerryBush, drawRock,
          drawPine, drawMushroom, drawFlower, drawDeadTree, drawCrystal, drawCampfire, drawShelter,
@@ -179,9 +179,7 @@ const resources = [
   { x:1550, y:1300, resourceType:'grass', depleted:false },
   { x:1350, y:1180, resourceType:'grass', depleted:false },
   { x:1700, y:1200, resourceType:'grass', depleted:false },
-  // 止血草（花田边缘）
-  { x:1900, y:1380, resourceType:'herb', depleted:false },
-  { x:2050, y:1420, resourceType:'herb', depleted:false },
+  // 止血草已删除（暂无用途，避免LLM误采）
   // 粘土（沙地）
   { x:1300, y:1730, resourceType:'clay', depleted:false },
   { x:1500, y:1750, resourceType:'clay', depleted:false },
@@ -300,7 +298,8 @@ const llmProvider = LLM_PROVIDER === 'gemini'
   ? new GeminiLLM(GEMINI_API_KEY, GEMINI_MODEL)
   : new LocalLLM();
 
-const worldObjects = { resources, rabbits, wolves, deers: [], fishes, foxes, shelterPos, campfirePos };
+// 鹿/狐狸/鱼对 AI 不可见（半成品，避免误交互）。仍保留 fishes/foxes 数组用于视觉渲染。
+const worldObjects = { resources, rabbits, wolves, deers: [], fishes: [], foxes: [], shelterPos, campfirePos };
 const aiBehavior = new AIBehavior(gs, worldObjects, craftingSystem, combatSystem, mapMemory, llmProvider);
 
 // 初始化 LLM
@@ -669,8 +668,6 @@ function frame(timestamp) {
         draws.push({ y: r.y, fn: () => drawRock(ctx, r.x - cx, r.y - cy, 9, i * 300 + 6000) }); break;
       case 'grass':
         draws.push({ y: r.y, fn: () => drawGrass(ctx, r.x - cx, r.y - cy, i * 100 + 7000) }); break;
-      case 'herb':
-        draws.push({ y: r.y, fn: () => drawFlower(ctx, r.x - cx, r.y - cy, i * 150 + 8000, 1) }); break;
       case 'clay':
         draws.push({ y: r.y, fn: () => drawRock(ctx, r.x - cx, r.y - cy, 7, i * 300 + 9000) }); break;
     }
